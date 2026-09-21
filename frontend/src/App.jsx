@@ -20,6 +20,7 @@ import NotFound from "./pages/NotFound";
 import AIRecommendation from "./pages/AIRecommendation";
 import Payment from "./pages/Payment";
 import Receipt from "./pages/Receipt";
+import Refunds from "./pages/Refunds";
 import AdminBlocks from "./pages/AdminBlocks";
 
 function AuthCallback() {
@@ -137,6 +138,14 @@ export default function App() {
         element={
           <Private roles={REQUESTER_ROLES}>
             <MyBookings />
+          </Private>
+        }
+      />
+      <Route
+        path="/app/refunds"
+        element={
+          <Private>
+            <Refunds />
           </Private>
         }
       />

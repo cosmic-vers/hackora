@@ -16,6 +16,7 @@ import {
   UserCircle2,
   FileText,
   Sparkles,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -27,12 +28,14 @@ const requesterLinks = [
   { to: "/app/book", label: "New booking", icon: CalendarPlus },
   { to: "/app/ai-recommend", label: "AI Venue Advisor", icon: Sparkles },
   { to: "/app/my-bookings", label: "My bookings", icon: ClipboardList },
+  { to: "/app/refunds", label: "Refunds", icon: RotateCcw },
 ];
 
 const adminLinks = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/app/venues", label: "Browse venues", icon: Building2 },
   { to: "/app/admin/bookings", label: "Requests", icon: ClipboardList },
+  { to: "/app/refunds", label: "Refunds", icon: RotateCcw },
   { to: "/app/admin/venues", label: "Venues", icon: ShieldCheck },
   { to: "/app/admin/services", label: "Support contracts", icon: FileText },
   { to: "/app/admin/blocks", label: "Maintenance & blocks", icon: ShieldCheck },

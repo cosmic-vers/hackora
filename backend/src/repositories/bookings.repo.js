@@ -152,11 +152,34 @@ async function cancel({id,actor}){
     const booking=await findById(id,client); if(!booking)return{notFound:true}; if(actor.role!=="ADMIN"&&actor.role!=="SUPER_ADMIN"&&booking.userId!==actor.id)return{forbidden:true}; if(["REJECTED","CANCELLED"].includes(booking.status))return{alreadyDecided:booking.status};
     const nextPayment=booking.paymentStatus==="PAID"?"REFUND_PENDING":booking.paymentStatus; const refund=booking.paymentStatus==="PAID"?booking.totalAmount:booking.refundAmount;
     await query(`UPDATE bookings SET status='CANCELLED',payment_status=$1,refund_amount=$2,updated_at=now() WHERE id=$3`,[nextPayment,refund,id],client);
-    if(booking.paymentStatus==="PAID")await notifications.notifyAdmins({type:"REFUND",title:"Refund request pending",message:`${booking.title} at ${booking.venueName} was cancelled after payment. Refund of ₹${Number(booking.totalAmount||0).toLocaleString("en-IN")} is awaiting review.`,link:"/app/admin/bookings"},client);
+    if(booking.paymentStatus==="PAID"){
+      // Cancelling a paid booking auto-opens a refund; keep the refunds table
+      // (the admin approve/reject queue reads from it) in sync with that,
+      // the same way an explicit refund request does.
+      await query(`INSERT INTO refunds (id,booking_id,amount,status,reason) VALUES ($1,$2,$3,'PENDING',$4)`,[uuid(),id,refund,"Booking cancelled after payment"],client);
+      await notifications.notifyAdmins({type:"REFUND",title:"Refund request pending",message:`${booking.title} at ${booking.venueName} was cancelled after payment. Refund of ₹${Number(booking.totalAmount||0).toLocaleString("en-IN")} is awaiting review.`,link:"/app/admin/bookings"},client);
+    }
     if((actor.role==="ADMIN"||actor.role==="SUPER_ADMIN")&&booking.userId!==actor.id)await notifications.create({userId:booking.userId,type:"CANCELLED",title:"Booking cancelled",message:`${booking.title} at ${booking.venueName} on ${booking.date} was cancelled by an administrator.`,link:"/app/my-bookings"},client);
     return {booking:await findById(id,client)};
   });
 }
+
+/** Bookings with a refund in play (pending, processed, or rejected), newest first, with the latest refund record attached. */
+async function refundsQueue({userId=null}={}){
+  const p=[];
+  let where=`(b.payment_status IN ('REFUND_PENDING','REFUNDED') OR EXISTS (SELECT 1 FROM refunds r WHERE r.booking_id=b.id))`;
+  if(userId){p.push(userId);where=`${where} AND b.user_id=$${p.length}`}
+  const {rows}=await query(`${SELECT_WITH_JOINS} WHERE ${where} ORDER BY b.updated_at DESC`,p);
+  const bookings=await Promise.all(rows.map(r=>toBooking(r,undefined,{includeServices:false})));
+  if(!bookings.length)return[];
+  const {rows:refundRows}=await query(`SELECT DISTINCT ON (booking_id) booking_id,status,reason,processed_by,created_at,updated_at FROM refunds WHERE booking_id=ANY($1::uuid[]) ORDER BY booking_id,created_at DESC`,[bookings.map(b=>b.id)]);
+  const byBooking=Object.fromEntries(refundRows.map(r=>[r.booking_id,r]));
+  return bookings.map(b=>{
+    const r=byBooking[b.id];
+    return {...b,refund:r?{status:r.status,reason:r.reason,requestedAt:r.created_at,updatedAt:r.updated_at}:null};
+  });
+}
+
 
 async function statsForUser(userId){const p=[];let w="";if(userId){p.push(userId);w="WHERE user_id=$1"}const{rows}=await query(`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE status='PENDING')::int AS pending,COUNT(*) FILTER(WHERE status='APPROVED')::int AS approved,COUNT(*) FILTER(WHERE status='REJECTED')::int AS rejected,COUNT(*) FILTER(WHERE status='CANCELLED')::int AS cancelled FROM bookings ${w}`,p);const r=rows[0]||{};return{total:Number(r.total||0),pending:Number(r.pending||0),approved:Number(r.approved||0),rejected:Number(r.rejected||0),cancelled:Number(r.cancelled||0)};}
 async function upcoming({userId=null,limit=5,includeServices=true}={}){const p=[new Date().toISOString().slice(0,10)];let w="WHERE b.status='APPROVED' AND b.date >= $1";if(userId){p.push(userId);w+=` AND b.user_id=$${p.length}`}p.push(limit);const{rows}=await query(`${SELECT_WITH_JOINS} ${w} ORDER BY b.date ASC,b.start_time ASC LIMIT $${p.length}`,p);return Promise.all(rows.map(r=>toBooking(r,undefined,{includeServices})));}
@@ -166,4 +189,4 @@ async function markPaid(id,{method="ONLINE_DEMO",transactionId,receiptNo}){retur
 async function requestRefund(id,amount){return withTransaction(async(client)=>{await query(`UPDATE bookings SET payment_status='REFUND_PENDING',refund_amount=$1,updated_at=now() WHERE id=$2 AND payment_status='PAID'`,[Number(amount||0),id],client);const booking=await findById(id,client);if(booking)await query(`INSERT INTO refunds (id,booking_id,amount,status,reason) VALUES ($1,$2,$3,'PENDING','Customer cancellation/refund request')`,[uuid(),id,Number(amount||0)],client);return booking;});}
 async function decideRefund(id,status,amount,adminId){return withTransaction(async(client)=>{const current=await findById(id,client);if(!current)return null;if(current.paymentStatus!=="REFUND_PENDING")return current;const safe=Math.max(0,Math.min(Number(amount||current.refundAmount||0),current.totalAmount));const approved=status==="APPROVED";await query(`UPDATE bookings SET payment_status=$1,refund_amount=$2,updated_at=now() WHERE id=$3`,[approved?"REFUNDED":"PAID",safe,id],client);await query(`UPDATE refunds SET status=$1,processed_by=$2,updated_at=now() WHERE booking_id=$3 AND status='PENDING'`,[approved?"PROCESSED":"REJECTED",adminId,id],client);await notifications.create({userId:current.userId,type:approved?"REFUNDED":"REFUND_REJECTED",title:approved?"Refund approved":"Refund request rejected",message:approved?`₹${safe.toLocaleString("en-IN")} refund approved for ${current.title}.`:`Your refund request for ${current.title} was rejected. The booking remains paid and can be reviewed again.`,link:"/app/my-bookings"},client);return findById(id,client);});}
 
-module.exports={findById,list,findOverlapping,slotsForDate,create,decide,cancel,statsForUser,upcoming,recent,markPaid,requestRefund,decideRefund,serviceConflicts,ConflictError};
+module.exports={findById,list,findOverlapping,slotsForDate,create,decide,cancel,statsForUser,upcoming,recent,markPaid,requestRefund,decideRefund,refundsQueue,serviceConflicts,ConflictError};

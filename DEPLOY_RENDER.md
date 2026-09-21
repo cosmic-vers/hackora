@@ -105,6 +105,17 @@ A healthy API returns JSON containing:
 {"status":"ok","service":"VenueHub API","database":"postgresql"}
 ```
 
-## 8. Payments
+## 8. Free-tier cold starts
+
+`render.yaml` deploys `venuehub-api` on Render's **free** web service plan. Free instances spin down after about 15 minutes of no traffic, and the next request has to cold-start the instance — often 30-50+ seconds — before it can answer anything, including login checks. If a customer or admin was reading/filling a form for a while, the instance may have gone to sleep by the time they click Confirm/Approve/Pay, and it can look like "the server isn't responding."
+
+This build mitigates it two ways:
+
+- The frontend pings `/api/health` as soon as the app loads (`warmUpApi()` in `frontend/src/main.jsx`), so a sleeping instance starts waking up while the person is still looking around, not the moment they submit something.
+- The API request timeout was raised from 20s to 55s so a cold start has a realistic chance to finish instead of the browser giving up mid-boot.
+
+For a production deployment with real traffic, upgrade `venuehub-api` to a paid Render plan (no spin-down) rather than relying on the warm-up ping alone.
+
+## 9. Payments
 
 The project contains a demo checkout flow for the SE-04 prototype. For production payments, replace the demo adapter with Razorpay/Stripe and verify payment signatures server-side before marking a booking as paid.
