@@ -26,9 +26,16 @@ const SELECT_WITH_JOINS = `
   LEFT JOIN users d ON d.id=b.decided_by
 `;
 
-async function toBooking(row, client) {
+async function toBooking(row, client, { includeServices = true } = {}) {
   if (!row) return null;
-  const services = await servicesRepo.getForBooking(row.id, client);
+  let services = [];
+  if (includeServices) {
+    try {
+      services = await servicesRepo.getForBooking(row.id, client);
+    } catch (error) {
+      console.warn(`[bookings] Optional service enrichment skipped for ${row.id}: ${error?.message || error}`);
+    }
+  }
   return {
     id: row.id, venueId: row.venue_id, userId: row.user_id, title: row.title, purpose: row.purpose,
     category: row.category, date: date(row.date), startTime: time(row.start_time), endTime: time(row.end_time),
@@ -152,8 +159,8 @@ async function cancel({id,actor}){
 }
 
 async function statsForUser(userId){const p=[];let w="";if(userId){p.push(userId);w="WHERE user_id=$1"}const{rows}=await query(`SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE status='PENDING')::int AS pending,COUNT(*) FILTER(WHERE status='APPROVED')::int AS approved,COUNT(*) FILTER(WHERE status='REJECTED')::int AS rejected,COUNT(*) FILTER(WHERE status='CANCELLED')::int AS cancelled FROM bookings ${w}`,p);const r=rows[0]||{};return{total:Number(r.total||0),pending:Number(r.pending||0),approved:Number(r.approved||0),rejected:Number(r.rejected||0),cancelled:Number(r.cancelled||0)};}
-async function upcoming({userId=null,limit=5}={}){const p=[new Date().toISOString().slice(0,10)];let w="WHERE b.status='APPROVED' AND b.date >= $1";if(userId){p.push(userId);w+=` AND b.user_id=$${p.length}`}p.push(limit);const{rows}=await query(`${SELECT_WITH_JOINS} ${w} ORDER BY b.date ASC,b.start_time ASC LIMIT $${p.length}`,p);return Promise.all(rows.map(toBooking));}
-async function recent({userId=null,limit=6}={}){const p=[];let w="";if(userId){p.push(userId);w=`WHERE b.user_id=$1`}p.push(limit);const{rows}=await query(`${SELECT_WITH_JOINS} ${w} ORDER BY b.created_at DESC LIMIT $${p.length}`,p);return Promise.all(rows.map(toBooking));}
+async function upcoming({userId=null,limit=5,includeServices=true}={}){const p=[new Date().toISOString().slice(0,10)];let w="WHERE b.status='APPROVED' AND b.date >= $1";if(userId){p.push(userId);w+=` AND b.user_id=$${p.length}`}p.push(limit);const{rows}=await query(`${SELECT_WITH_JOINS} ${w} ORDER BY b.date ASC,b.start_time ASC LIMIT $${p.length}`,p);return Promise.all(rows.map(r=>toBooking(r,undefined,{includeServices})));}
+async function recent({userId=null,limit=6,includeServices=true}={}){const p=[];let w="";if(userId){p.push(userId);w=`WHERE b.user_id=$1`}p.push(limit);const{rows}=await query(`${SELECT_WITH_JOINS} ${w} ORDER BY b.created_at DESC LIMIT $${p.length}`,p);return Promise.all(rows.map(r=>toBooking(r,undefined,{includeServices})));}
 
 async function markPaid(id,{method="ONLINE_DEMO",transactionId,receiptNo}){return withTransaction(async(client)=>{const{rows}=await query(`UPDATE bookings SET payment_status='PAID',payment_method=$1,transaction_id=$2,receipt_no=$3,updated_at=now() WHERE id=$4 AND status='APPROVED' AND payment_status='UNPAID' RETURNING *`,[method,transactionId,receiptNo,id],client);if(!rows[0])return findById(id,client);await query(`INSERT INTO payments (id,booking_id,provider,transaction_id,amount,status,metadata) VALUES ($1,$2,$3,$4,$5,'PAID',$6::jsonb)`,[uuid(),id,method,transactionId,Number(rows[0].total_amount||0),JSON.stringify({demo:method.includes("DEMO")})],client);return findById(id,client);});}
 async function requestRefund(id,amount){return withTransaction(async(client)=>{await query(`UPDATE bookings SET payment_status='REFUND_PENDING',refund_amount=$1,updated_at=now() WHERE id=$2 AND payment_status='PAID'`,[Number(amount||0),id],client);const booking=await findById(id,client);if(booking)await query(`INSERT INTO refunds (id,booking_id,amount,status,reason) VALUES ($1,$2,$3,'PENDING','Customer cancellation/refund request')`,[uuid(),id,Number(amount||0)],client);return booking;});}

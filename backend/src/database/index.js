@@ -44,7 +44,13 @@ async function initSchema() {
   const schemaPath = path.join(__dirname, "../../../supabase/schema.sql");
   const schema = fs.readFileSync(schemaPath, "utf8");
   await pool.query(schema);
-  console.log("[db] PostgreSQL schema ready.");
+  const migrationsDir = path.join(__dirname, "../../../supabase/migrations");
+  const migrationFiles = fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+  for (const file of migrationFiles) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+    await pool.query(sql);
+  }
+  console.log("[db] PostgreSQL schema and migrations ready.");
 }
 
 async function close() {

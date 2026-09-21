@@ -16,7 +16,7 @@ VenueHub is a general function-hall and event-venue booking platform designed to
 
 ```bash
 cd backend
-npm ci
+npm install
 cp .env.example .env
 npm run dev
 ```
@@ -27,7 +27,7 @@ Open a second terminal:
 
 ```bash
 cd frontend
-npm ci
+npm install
 cp .env.example .env
 npm run dev
 ```
