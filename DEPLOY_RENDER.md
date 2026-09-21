@@ -1,6 +1,13 @@
-# VenueHub — Live Deployment
+# VenueHub — Live Deployment (Free Tier)
 
-This project is prepared for a real deployment with **Render**: a React/Vite static frontend and a Node/Express API. The API uses SQLite, so the Render API service is configured with a persistent disk at `/var/data`. Render documents that ordinary service filesystems are ephemeral and that persistent disks preserve files across deploys/restarts; persistent disks require a paid compatible service and keep the service to one instance.
+This project is prepared for deployment with **Render** on its **free** plan: a React/Vite static frontend (always free on Render) and a Node/Express API on Render's free web service plan. Both cost $0 and don't require a credit card.
+
+**Trade-off to know:** the API's SQLite database now lives on the service's local, ephemeral disk instead of a paid persistent disk. That means:
+- Data survives fine across ordinary traffic and warm restarts.
+- Data is **wiped** whenever the service redeploys, or spins down from inactivity and cold-starts again. Render's free web services sleep after ~15 minutes with no traffic and take ~30–60 seconds to wake back up on the next request.
+- `SEED_ON_START=true` means every fresh start reseeds the demo accounts and sample venues automatically, so the app always comes back up in a usable, demo-ready state — it just won't remember bookings/users created since the last restart.
+
+This is a good fit for a portfolio piece, hackathon submission, or demo link. If you later need bookings and accounts to persist permanently, the cheapest upgrade path is adding a free-tier hosted database (e.g. Turso for SQLite-compatible storage, or Supabase/Neon for Postgres) rather than paying for Render's persistent disk — ask if you want help wiring that in.
 
 ## 1. Push the project to GitHub
 
@@ -10,11 +17,10 @@ Create a new repository and push the contents of this folder. The repository roo
 
 In Render, choose **New → Blueprint** and connect the GitHub repository. Render will read `render.yaml` and create:
 
-- `venuehub-api` — Express API
-- `venuehub-web` — React/Vite frontend
-- a 1 GB persistent disk for the SQLite database
+- `venuehub-api` — Express API (free web service plan)
+- `venuehub-web` — React/Vite frontend (static site, always free)
 
-The API uses `/api/health` as its health check.
+No paid plan or disk is provisioned — confirm the plan selector shows **Free** for `venuehub-api` before you click "Apply". The API uses `/api/health` as its health check.
 
 ## 3. Secrets
 

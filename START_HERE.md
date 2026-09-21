@@ -51,4 +51,4 @@ OPENAI_MODEL=gpt-4o-mini
 
 ## Go live
 
-This repo is deployment-ready for Render. See `DEPLOY_RENDER.md` and `render.yaml`. The frontend is a React/Vite static site and the API is a Node/Express service with a persistent disk for the SQLite database.
+This repo is deployment-ready for Render's **free** tier — no credit card or paid plan needed. See `DEPLOY_RENDER.md` and `render.yaml`. The frontend is a React/Vite static site and the API is a Node/Express service; SQLite data lives on the free service's local disk, which resets on redeploy or after the service sleeps from inactivity (demo accounts auto-reseed on every restart).

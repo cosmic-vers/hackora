@@ -3,16 +3,12 @@ services:
     runtime: node
     name: venuehub-api
     region: singapore
-    plan: starter
+    plan: free
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
-    disk:
-      name: venuehub-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -20,8 +16,6 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
-      - key: DATABASE_FILE
-        value: /var/data/venuehub.db
       - key: CORS_ORIGINS
         value: https://venuehub-web.onrender.com
       - key: SEED_ON_START

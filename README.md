@@ -310,5 +310,3 @@ If the AI provider is not configured or the AI request fails, VenueHub automatic
 ## Live deployment
 
 See `DEPLOY_RENDER.md` for the production deployment setup for Render.
-#   h a c k o r a  
- 
