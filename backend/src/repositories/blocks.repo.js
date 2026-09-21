@@ -1,0 +1,7 @@
+const { v4: uuid } = require("uuid");
+const { db } = require("../database");
+function list({venueId="",from="",to=""}={}){const w=[];const p={};if(venueId){w.push("b.venue_id=@venueId");p.venueId=venueId;}if(from){w.push("b.date>=@from");p.from=from;}if(to){w.push("b.date<=@to");p.to=to;}const c=w.length?`WHERE ${w.join(" AND ")}`:"";return db.prepare(`SELECT b.*,v.name AS venue_name FROM venue_blocks b JOIN venues v ON v.id=b.venue_id ${c} ORDER BY b.date,b.start_time`).all(p).map(r=>({id:r.id,venueId:r.venue_id,venueName:r.venue_name,date:r.date,startTime:r.start_time,endTime:r.end_time,reason:r.reason,createdAt:r.created_at}));}
+function create(d){const now=new Date().toISOString();const row={id:uuid(),venue_id:d.venueId,date:d.date,start_time:d.startTime,end_time:d.endTime,reason:d.reason||"Maintenance",created_by:d.createdBy||null,created_at:now};db.prepare(`INSERT INTO venue_blocks (id,venue_id,date,start_time,end_time,reason,created_by,created_at) VALUES (@id,@venue_id,@date,@start_time,@end_time,@reason,@created_by,@created_at)`).run(row);return list({venueId:d.venueId,date:d.date}).find(x=>x.id===row.id);}
+function remove(id){return db.prepare("DELETE FROM venue_blocks WHERE id=?").run(id).changes>0;}
+function overlaps(d){return db.prepare(`SELECT * FROM venue_blocks WHERE venue_id=? AND date=? AND start_time<? AND ?<end_time`).all(d.venueId,d.date,d.endTime,d.startTime).map(r=>({id:r.id,startTime:r.start_time,endTime:r.end_time,reason:r.reason}));}
+module.exports={list,create,remove,overlaps};

@@ -1,0 +1,251 @@
+const express = require("express");
+const bookingsRepo = require("../repositories/bookings.repo");
+const venuesRepo = require("../repositories/venues.repo");
+const { authenticate, authorize } = require("../middleware/auth");
+const { asyncHandler, notFound, forbidden, conflict, badRequest } = require("../middleware/errors");
+const { check, pagination } = require("../utils/validate");
+const blocksRepo = require("../repositories/blocks.repo");
+
+const router = express.Router();
+
+const CATEGORIES = [
+  "ACADEMIC",
+  "CULTURAL",
+  "TECHNICAL",
+  "SPORTS",
+  "MEETING",
+  "WORKSHOP",
+  "PLACEMENT",
+  "WEDDING",
+  "BIRTHDAY",
+  "CONFERENCE",
+  "RECEPTION",
+  "OTHER",
+];
+
+/** Minutes between two "HH:MM" strings. */
+function minutesBetween(start, end) {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
+}
+
+// GET /api/bookings — own bookings; admins see everything unless ?mine=true
+router.get(
+  "/",
+  authenticate,
+  asyncHandler((req, res) => {
+    const { page, pageSize } = pagination(req.query);
+    const scopeToSelf = req.user.role !== "ADMIN" || req.query.mine === "true";
+
+    res.json(
+      bookingsRepo.list({
+        userId: scopeToSelf ? req.user.id : null,
+        status: req.query.status || "",
+        venueId: req.query.venueId || "",
+        search: req.query.search || "",
+        from: req.query.from || "",
+        to: req.query.to || "",
+        page,
+        pageSize,
+      })
+    );
+  })
+);
+
+router.get(
+  "/:id",
+  authenticate,
+  asyncHandler((req, res) => {
+    const booking = bookingsRepo.findById(req.params.id);
+    if (!booking) throw notFound("That booking no longer exists.");
+    if (req.user.role !== "ADMIN" && booking.userId !== req.user.id) {
+      throw forbidden("You can only view your own bookings.");
+    }
+    res.json({ booking });
+  })
+);
+
+router.post(
+  "/",
+  authenticate,
+  asyncHandler((req, res) => {
+    const data = check(req.body)
+      .string("venueId", { label: "Venue" })
+      .string("title", { label: "Event title", min: 3, max: 120 })
+      .string("purpose", { label: "Purpose", required: false, max: 600 })
+      .oneOf("category", CATEGORIES, { label: "Category", required: false })
+      .date("date", { label: "Event date" })
+      .time("startTime", { label: "Start time" })
+      .time("endTime", { label: "End time" })
+      .integer("expectedAttendees", { label: "Expected attendees", required: false, min: 1 })
+      .stringArray("serviceIds", { max: 30, maxLength: 80 })
+      .result();
+
+    if (data.startTime >= data.endTime) {
+      throw badRequest("End time must be after start time.", {
+        endTime: "End time must be after start time.",
+      });
+    }
+    const duration = minutesBetween(data.startTime, data.endTime);
+    if (duration < 15) {
+      throw badRequest("A booking must run for at least 15 minutes.", {
+        endTime: "A booking must run for at least 15 minutes.",
+      });
+    }
+
+    if (new Date(`${data.date}T${data.startTime}`) < new Date()) {
+      throw badRequest("Pick a date and time in the future.", {
+        date: "Pick a date and time in the future.",
+      });
+    }
+
+    const venue = venuesRepo.findById(data.venueId);
+    if (!venue) throw notFound("That venue no longer exists.");
+    if (venue.status !== "ACTIVE") {
+      throw conflict("This venue is not accepting bookings right now.");
+    }
+    if (data.startTime < venue.openTime || data.endTime > venue.closeTime) {
+      throw conflict(`${venue.name} is open from ${venue.openTime} to ${venue.closeTime}.`);
+    }
+    if (data.expectedAttendees && data.expectedAttendees > venue.capacity) {
+      throw badRequest(
+        `${venue.name} holds ${venue.capacity} people — you entered ${data.expectedAttendees}.`,
+        { expectedAttendees: `Maximum capacity is ${venue.capacity}.` }
+      );
+    }
+
+    // Only services belonging to this venue and currently active may be attached.
+    if (data.serviceIds?.length) {
+      const allowed = require("../repositories/services.repo").list({ venueId: venue.id, status: "ACTIVE" }).map(s => s.id);
+      const invalid = data.serviceIds.filter(id => !allowed.includes(id));
+      if (invalid.length) throw badRequest("One or more selected support services are not available for this venue.", { serviceIds: "Choose only active services listed for this venue." });
+    }
+
+    const blocked = blocksRepo.overlaps({ venueId: venue.id, date: data.date, startTime: data.startTime, endTime: data.endTime });
+    if (blocked.length) throw conflict(`Venue blocked for ${blocked[0].reason} during ${blocked[0].startTime}–${blocked[0].endTime}.`);
+
+    const serviceClashes = bookingsRepo.serviceConflicts({
+      serviceIds: data.serviceIds || [],
+      date: data.date,
+      startTime: data.startTime,
+      endTime: data.endTime,
+    }).filter((c) => c.status === "APPROVED");
+    if (serviceClashes.length) {
+      throw conflict(
+        "One or more selected support services are already assigned in this time slot.",
+        serviceClashes.map((c) => ({ title: `${c.service_name}: ${c.title}`, startTime: c.start_time, endTime: c.end_time }))
+      );
+    }
+
+    const { booking, pendingConflicts } = bookingsRepo.create({
+      ...data,
+      category: data.category || "OTHER",
+      userId: req.user.id,
+      requesterName: req.user.name,
+      venueName: venue.name,
+      seatingArrangement: req.body.seatingArrangement || "",
+    });
+
+    res.status(201).json({
+      booking,
+      pendingConflicts,
+      warning: pendingConflicts.length
+        ? "Another request already covers part of this slot. Whichever is approved first gets the room."
+        : null,
+    });
+  })
+);
+
+// PATCH /api/bookings/:id/status — admin decision
+router.patch(
+  "/:id/status",
+  authenticate,
+  authorize("ADMIN"),
+  asyncHandler((req, res) => {
+    const data = check(req.body)
+      .oneOf("status", ["APPROVED", "REJECTED"], { label: "Decision" })
+      .string("adminRemarks", { label: "Remarks", required: false, max: 400 })
+      .result();
+
+    if (data.status === "REJECTED" && !data.adminRemarks) {
+      throw badRequest("Add a short reason so the requester knows what to change.", {
+        adminRemarks: "Add a short reason for the rejection.",
+      });
+    }
+
+    const result = bookingsRepo.decide({
+      id: req.params.id,
+      status: data.status,
+      adminRemarks: data.adminRemarks,
+      adminId: req.user.id,
+    });
+
+    if (result.notFound) throw notFound("That booking no longer exists.");
+    if (result.alreadyDecided) {
+      throw conflict(`This request was already ${result.alreadyDecided.toLowerCase()}.`);
+    }
+
+    res.json({
+      booking: result.booking,
+      autoRejected: result.autoRejected.map((b) => ({ id: b.id, title: b.title })),
+    });
+  })
+);
+
+// POST /api/bookings/:id/pay — demo online checkout. Replace with a gateway provider in production.
+router.post('/:id/pay', authenticate, asyncHandler((req,res)=>{
+  const booking=bookingsRepo.findById(req.params.id);
+  if(!booking) throw notFound('That booking no longer exists.');
+  if(req.user.role!=='ADMIN' && booking.userId!==req.user.id) throw forbidden('You can only pay for your own booking.');
+  if(booking.status!=='APPROVED') throw conflict('Payment is available after the booking is approved.');
+  if(booking.paymentStatus==='PAID') return res.json({booking,message:'Already paid.'});
+  const transactionId=`VHTXN-${Date.now().toString(36).toUpperCase()}`;
+  const receiptNo=`VH-${new Date().getFullYear()}-${Math.floor(100000+Math.random()*900000)}`;
+  const paid=bookingsRepo.markPaid(booking.id,{method:req.body.method||'ONLINE_DEMO',transactionId,receiptNo});
+  if (!paid || paid.paymentStatus !== 'PAID') throw conflict('Payment could not be completed for this booking. Please refresh and try again.');
+  res.json({booking:paid,message:'Payment successful. Digital receipt generated.'});
+}));
+
+router.patch('/:id/refund', authenticate, authorize('ADMIN'), asyncHandler((req,res)=>{
+  const booking=bookingsRepo.findById(req.params.id);
+  if(!booking) throw notFound('That booking no longer exists.');
+  if(booking.paymentStatus!=='REFUND_PENDING') throw conflict('This booking has no pending refund.');
+  const status=req.body.status==='REJECTED'?'REJECTED':'APPROVED';
+  const amount=Number(req.body.amount??booking.refundAmount??booking.totalAmount??0);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > booking.totalAmount) throw badRequest('Refund amount is invalid.');
+  const updated=bookingsRepo.decideRefund(booking.id,status,amount);
+  res.json({booking:updated,message:status==='APPROVED'?'Refund approved.':'Refund rejected. The booking remains paid and can be reviewed again.'});
+}));
+
+router.post('/:id/refund', authenticate, asyncHandler((req,res)=>{
+  const booking=bookingsRepo.findById(req.params.id);
+  if(!booking) throw notFound('That booking no longer exists.');
+  if(req.user.role!=='ADMIN' && booking.userId!==req.user.id) throw forbidden('You can only request a refund for your own booking.');
+  if(booking.paymentStatus!=='PAID') throw conflict('Only paid bookings can be refunded.');
+  if(req.user.role!=='ADMIN' && booking.status!=='CANCELLED') throw conflict('Cancel the booking first. A paid cancellation automatically creates a refund request.');
+  const requested=Number(req.body.amount||booking.totalAmount||0);
+  if(requested<=0 || requested>booking.totalAmount) throw badRequest('Refund amount is invalid.');
+  bookingsRepo.requestRefund(booking.id,requested);
+  if(req.user.role==='ADMIN') bookingsRepo.decideRefund(booking.id,'APPROVED',requested);
+  res.json({booking:bookingsRepo.findById(booking.id),message:req.user.role==='ADMIN'?'Refund processed.':'Refund request submitted.'});
+}));
+
+// DELETE /api/bookings/:id — cancel (owner or admin)
+router.delete(
+  "/:id",
+  authenticate,
+  asyncHandler((req, res) => {
+    const result = bookingsRepo.cancel({ id: req.params.id, actor: req.user });
+
+    if (result.notFound) throw notFound("That booking no longer exists.");
+    if (result.forbidden) throw forbidden("You can only cancel your own bookings.");
+    if (result.alreadyDecided) {
+      throw conflict(`This booking is already ${result.alreadyDecided.toLowerCase()}.`);
+    }
+
+    res.json({ booking: result.booking, message: "Booking cancelled." });
+  })
+);
+
+module.exports = router;
