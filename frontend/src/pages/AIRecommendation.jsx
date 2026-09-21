@@ -174,7 +174,7 @@ export default function AIRecommendation() {
           </Field>
 
           <Field label="What are you organizing?">
-            {(props) => <textarea {...props} rows={3} value={form.purpose} onChange={update("purpose")} placeholder="Technical workshop for students with demonstrations and a guest speaker." />}
+            {(props) => <textarea {...props} rows={3} value={form.purpose} onChange={update("purpose")} placeholder="Technical workshop with demonstrations and a guest speaker." />}
           </Field>
 
           <div className="field-row">

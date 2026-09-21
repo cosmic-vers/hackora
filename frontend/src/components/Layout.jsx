@@ -40,6 +40,11 @@ const adminLinks = [
   { to: "/app/admin/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
+const ownerLinks = [
+  ...requesterLinks,
+  { to: "/app/admin/venues", label: "My venues", icon: ShieldCheck },
+];
+
 function initials(name = "") {
   return name
     .split(" ")
@@ -55,7 +60,7 @@ export default function Layout({ title, subtitle, actions, children }) {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
 
-  const links = user?.role === "ADMIN" ? adminLinks : requesterLinks;
+  const links = ["ADMIN", "SUPER_ADMIN"].includes(user?.role) ? adminLinks : user?.role === "VENUE_OWNER" ? ownerLinks : requesterLinks;
 
   // Close the drawer whenever navigation happens.
   useEffect(() => setNavOpen(false), [location.pathname]);

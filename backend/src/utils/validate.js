@@ -92,9 +92,14 @@ class Checker {
     return this;
   }
 
-  date(field = "date", { label = "Date" } = {}) {
+  date(field = "date", { label = "Date", required = true } = {}) {
     const value = this.body[field];
-    if (!value || !DATE_RE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00`))) {
+    if (!value) {
+      if (required) this.errors[field] = `${label} must be a valid date (YYYY-MM-DD).`;
+      else this.value[field] = null;
+      return this;
+    }
+    if (!DATE_RE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00`))) {
       this.errors[field] = `${label} must be a valid date (YYYY-MM-DD).`;
       return this;
     }

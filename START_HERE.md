@@ -1,54 +1,75 @@
-# VenueHub — SE-04 Start Here
+# VenueHub — Start Here
 
-## 1. Backend
+VenueHub is a general function-hall and event-venue booking platform designed to serve multiple venues, organisations, cities, and event organisers.
+
+## Stack
+
+- React + Vite frontend
+- Node.js + Express API
+- Supabase PostgreSQL database
+- Supabase Auth with Google OAuth
+- Optional OpenAI AI recommendations
+
+## Local setup
+
+### Backend
 
 ```bash
 cd backend
-npm install
+npm ci
+cp .env.example .env
 npm run dev
 ```
 
-Backend: `http://localhost:5000`
-Health check: `http://localhost:5000/api/health`
-
-## 2. Frontend
+### Frontend
 
 Open a second terminal:
 
 ```bash
 cd frontend
-npm install
+npm ci
+cp .env.example .env
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Then open `http://localhost:5173`.
 
-## Demo accounts
+## Required environment variables
 
-- Admin: `admin@venuehub.edu` / `Admin@123`
-- Faculty: `faculty@venuehub.edu` / `Faculty@123`
-- Student: `student@venuehub.edu` / `Student@123`
-- Club: `club@venuehub.edu` / `Club@123`
-
-## AI Venue Advisor
-
-The project works without an external AI key using the transparent local recommendation fallback.
-
-To enable the OpenAI ranking/explanation layer, edit `backend/.env`:
+Backend `.env`:
 
 ```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=your_key_here
+PORT=5000
+DATABASE_URL=YOUR_SUPABASE_POSTGRES_CONNECTION_STRING
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY
+CORS_ORIGINS=http://localhost:5173
+ADMIN_EMAILS=your-google-email@example.com
+APP_TIMEZONE=Asia/Kolkata
+AI_PROVIDER=fallback
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
+SEED_ON_START=true
 ```
 
-## Notes
+Frontend `.env`:
 
-- The bundled `backend/.env` is for local development only. Replace the JWT secret before deployment.
-- The online payment flow is intentionally a demo/sandbox flow; connect Razorpay/Stripe before processing real money.
-- `node_modules` is intentionally excluded from the ZIP. Run `npm install` in both folders.
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+```
 
+## Database
 
-## Go live
+Run `supabase/schema.sql` once in the Supabase SQL Editor.
 
-This repo is deployment-ready for Render's **free** tier — no credit card or paid plan needed. See `DEPLOY_RENDER.md` and `render.yaml`. The frontend is a React/Vite static site and the API is a Node/Express service; SQLite data lives on the free service's local disk, which resets on redeploy or after the service sleeps from inactivity (demo accounts auto-reseed on every restart).
+The backend also runs the schema initialization on startup, so the deployment can self-check that the required tables exist.
+
+## Authentication
+
+There are **no demo accounts and no VenueHub passwords**. Users sign in with Google. The backend creates or updates the application profile on the first authenticated API request.
+
+## Production deployment
+
+See `DEPLOY_RENDER.md` for the exact Supabase + Google OAuth + Render setup.

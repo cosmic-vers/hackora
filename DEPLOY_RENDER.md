@@ -1,53 +1,110 @@
-# VenueHub — Live Deployment (Free Tier)
+# VenueHub — Production Deployment
 
-This project is prepared for deployment with **Render** on its **free** plan: a React/Vite static frontend (always free on Render) and a Node/Express API on Render's free web service plan. Both cost $0 and don't require a credit card.
+VenueHub is now a general-purpose function-hall and event-venue platform for multiple organisations, venue owners, and cities.
 
-**Trade-off to know:** the API's SQLite database now lives on the service's local, ephemeral disk instead of a paid persistent disk. That means:
-- Data survives fine across ordinary traffic and warm restarts.
-- Data is **wiped** whenever the service redeploys, or spins down from inactivity and cold-starts again. Render's free web services sleep after ~15 minutes with no traffic and take ~30–60 seconds to wake back up on the next request.
-- `SEED_ON_START=true` means every fresh start reseeds the demo accounts and sample venues automatically, so the app always comes back up in a usable, demo-ready state — it just won't remember bookings/users created since the last restart.
+Production architecture:
 
-This is a good fit for a portfolio piece, hackathon submission, or demo link. If you later need bookings and accounts to persist permanently, the cheapest upgrade path is adding a free-tier hosted database (e.g. Turso for SQLite-compatible storage, or Supabase/Neon for Postgres) rather than paying for Render's persistent disk — ask if you want help wiring that in.
+- **Frontend:** React + Vite on Render Static Site
+- **Backend:** Node.js + Express on Render Web Service
+- **Database:** Supabase PostgreSQL
+- **Authentication:** Supabase Auth + Google OAuth
+- **AI:** Optional OpenAI API, with a transparent local recommendation fallback
 
-## 1. Push the project to GitHub
+## 1. Create the Supabase project
 
-Create a new repository and push the contents of this folder. The repository root must contain `render.yaml`, `frontend/`, and `backend/`.
+Create a project at https://supabase.com/.
 
-## 2. Create the Render Blueprint
+Then open **SQL Editor** and run the complete file:
 
-In Render, choose **New → Blueprint** and connect the GitHub repository. Render will read `render.yaml` and create:
+`supabase/schema.sql`
 
-- `venuehub-api` — Express API (free web service plan)
-- `venuehub-web` — React/Vite frontend (static site, always free)
+From Supabase project settings, note:
 
-No paid plan or disk is provisioned — confirm the plan selector shows **Free** for `venuehub-api` before you click "Apply". The API uses `/api/health` as its health check.
+- Project URL → `SUPABASE_URL`
+- Publishable key → frontend `VITE_SUPABASE_PUBLISHABLE_KEY`
+- Secret key (`sb_secret_...`) → backend `SUPABASE_SECRET_KEY` (never expose this to the browser)
+- PostgreSQL Session Pooler connection string → backend `DATABASE_URL`
 
-## 3. Secrets
+## 2. Configure Google Login
 
-Render generates `JWT_SECRET` automatically. Set `OPENAI_API_KEY` only when you want live AI recommendations. Set `AI_PROVIDER=openai` to enable the OpenAI path; otherwise the application uses its transparent local recommendation fallback.
+In Google Cloud Console create a **Web application OAuth client**.
 
-Never commit a real `.env` file or API keys.
+Google OAuth configuration should use:
 
-## 4. After the first deployment
+- Authorized JavaScript origin: your VenueHub frontend URL
+- Authorized redirect URI: the Supabase Google provider callback URL shown in Supabase Auth → Providers → Google
 
-Open:
+In Supabase:
 
-- Frontend: `https://venuehub-web.onrender.com`
-- API health: `https://venuehub-api.onrender.com/api/health`
+- Enable **Google** under Authentication → Providers
+- Paste the Google Client ID and Client Secret
+- Set the project Site URL to the production frontend URL
+- Add the local callback and production callback to Redirect URLs:
+  - `http://localhost:5173/auth/callback`
+  - `https://YOUR_FRONTEND_DOMAIN/auth/callback`
 
-If you rename either Render service, update `VITE_API_URL` on the frontend and `CORS_ORIGINS` on the API to the actual URLs, then redeploy.
+The browser calls `supabase.auth.signInWithOAuth({ provider: 'google' })`. The backend verifies the resulting Supabase access token before allowing protected API requests.
 
-## 5. Demo accounts
+## 3. Push to GitHub
 
-The seed system creates demo accounts on startup:
+At the repository root:
 
-- Admin — `admin@venuehub.edu` / `Admin@123`
-- Faculty — `faculty@venuehub.edu` / `Faculty@123`
-- Student — `student@venuehub.edu` / `Student@123`
-- Club — `club@venuehub.edu` / `Club@123`
+```bash
+git init
+git add .
+git commit -m "VenueHub production architecture"
+git branch -M main
+git remote add origin YOUR_GITHUB_REPO_URL
+git push -u origin main
+```
 
-For a real production deployment, change or remove these accounts and set `SEED_ON_START=false` after creating your real administrator.
+## 4. Deploy with Render
 
-## 6. Payments
+Create a Render **Blueprint** from the GitHub repository. Render reads `render.yaml` and creates:
 
-The current booking flow contains a **demo payment gateway**, suitable for a hackathon prototype. A production deployment should replace that adapter with a real provider such as Razorpay or Stripe and verify payments server-side before marking a booking paid.
+- `venuehub-api`
+- `venuehub-web`
+
+Set these backend variables in Render:
+
+- `DATABASE_URL`
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `CORS_ORIGINS` → exact public frontend URL
+- `ADMIN_EMAILS` → comma-separated Google email addresses that should become admins
+- `AI_PROVIDER` → `openai` or `fallback`
+- `OPENAI_API_KEY` → only when AI is enabled
+
+Set these frontend variables:
+
+- `VITE_API_URL` → exact public API URL plus `/api`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+Never put `SUPABASE_SECRET_KEY` or `OPENAI_API_KEY` into frontend environment variables.
+
+## 5. First production login
+
+There are **no demo passwords** anymore.
+
+Every account is created through Google. The first Google sign-in creates a `CUSTOMER` account automatically. Addresses listed in `ADMIN_EMAILS` are promoted to `ADMIN` by the backend.
+
+## 6. Venue owners
+
+Venue owners use Google login too. An admin can promote a user to `VENUE_OWNER` through the admin role-management workflow once owner onboarding is enabled.
+
+## 7. Health check
+
+After deployment, verify:
+
+`https://YOUR_API_DOMAIN/api/health`
+
+A healthy API returns JSON containing:
+
+```json
+{"status":"ok","service":"VenueHub API","database":"postgresql"}
+```
+
+## 8. Payments
+
+The project contains a demo checkout flow for the SE-04 prototype. For production payments, replace the demo adapter with Razorpay/Stripe and verify payment signatures server-side before marking a booking as paid.

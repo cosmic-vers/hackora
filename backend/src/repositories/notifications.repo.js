@@ -1,75 +1,10 @@
 const { v4: uuid } = require("uuid");
-const { db } = require("../database");
-
-function toNotification(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    userId: row.user_id,
-    type: row.type,
-    title: row.title,
-    message: row.message,
-    link: row.link,
-    read: row.is_read === 1,
-    createdAt: row.created_at,
-  };
-}
-
-const insertStmt = db.prepare(`
-  INSERT INTO notifications (id, user_id, type, title, message, link, is_read, created_at)
-  VALUES (@id, @user_id, @type, @title, @message, @link, 0, @created_at)
-`);
-
-/** Safe to call inside an open transaction. */
-function create({ userId, type = "INFO", title, message = "", link = "" }) {
-  const row = {
-    id: uuid(),
-    user_id: userId,
-    type,
-    title,
-    message,
-    link,
-    created_at: new Date().toISOString(),
-  };
-  insertStmt.run(row);
-  return toNotification({ ...row, is_read: 0 });
-}
-
-function listForUser(userId, { limit = 30 } = {}) {
-  const rows = db
-    .prepare(
-      `SELECT * FROM notifications
-       WHERE user_id = ?
-       ORDER BY datetime(created_at) DESC
-       LIMIT ?`
-    )
-    .all(userId, limit);
-  const unread = db
-    .prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0")
-    .get(userId).n;
-  return { notifications: rows.map(toNotification), unread };
-}
-
-function markRead(userId, id) {
-  return (
-    db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?").run(id, userId)
-      .changes > 0
-  );
-}
-
-function markAllRead(userId) {
-  return db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(userId).changes;
-}
-
-function clear(userId) {
-  return db.prepare("DELETE FROM notifications WHERE user_id = ?").run(userId).changes;
-}
-
-/** Every admin gets told when a new request lands. */
-function notifyAdmins(payload) {
-  const admins = db.prepare("SELECT id FROM users WHERE role = 'ADMIN'").all();
-  admins.forEach((admin) => create({ ...payload, userId: admin.id }));
-  return admins.length;
-}
-
-module.exports = { create, listForUser, markRead, markAllRead, clear, notifyAdmins };
+const { query } = require("../database");
+function toNotification(r){if(!r)return null;return{id:r.id,userId:r.user_id,type:r.type,title:r.title,message:r.message,link:r.link,read:Boolean(r.is_read),createdAt:r.created_at};}
+async function create({userId,type="INFO",title,message="",link=""},client){const row={id:uuid(),user_id:userId,type,title,message,link};const{rows}=await query(`INSERT INTO notifications (id,user_id,type,title,message,link,is_read) VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING *`,[row.id,row.user_id,row.type,row.title,row.message,row.link],client);return toNotification(rows[0]);}
+async function listForUser(userId,{limit=30}={}){const{rows}=await query(`SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`,[userId,limit]);const unread=await query(`SELECT COUNT(*)::int AS n FROM notifications WHERE user_id=$1 AND is_read=false`,[userId]);return{notifications:rows.map(toNotification),unread:Number(unread.rows[0]?.n||0)};}
+async function markRead(userId,id){const r=await query("UPDATE notifications SET is_read=true WHERE id=$1 AND user_id=$2",[id,userId]);return r.rowCount>0;}
+async function markAllRead(userId){const r=await query("UPDATE notifications SET is_read=true WHERE user_id=$1",[userId]);return r.rowCount;}
+async function clear(userId){const r=await query("DELETE FROM notifications WHERE user_id=$1",[userId]);return r.rowCount;}
+async function notifyAdmins(payload,client){const{rows}=await query("SELECT id FROM users WHERE role IN ('ADMIN','SUPER_ADMIN')",[],client);for(const a of rows)await create({...payload,userId:a.id},client);return rows.length;}
+module.exports={create,listForUser,markRead,markAllRead,clear,notifyAdmins};

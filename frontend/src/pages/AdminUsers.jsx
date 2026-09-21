@@ -11,10 +11,8 @@ import { useToast } from "../context/ToastContext";
 const ROLES = [
   { value: "", label: "Everyone" },
   { value: "ADMIN", label: "Admins" },
-  { value: "FACULTY", label: "Faculty" },
-  { value: "STUDENT", label: "Students" },
-  { value: "CLUB", label: "Clubs" },
-  { value: "DEPARTMENT", label: "Departments" },
+  { value: "VENUE_OWNER", label: "Venue owners" },
+  { value: "CUSTOMER", label: "Customers" },
 ];
 
 export default function AdminUsers() {
@@ -26,6 +24,7 @@ export default function AdminUsers() {
   const [page, setPage] = useState(1);
   const [removeTarget, setRemoveTarget] = useState(null);
   const [removing, setRemoving] = useState(false);
+  const [updatingRole, setUpdatingRole] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -37,6 +36,20 @@ export default function AdminUsers() {
   }, [role, search, page, toast]);
 
   useEffect(load, [load]);
+
+  const changeRole = async (person, nextRole) => {
+    if (!nextRole || nextRole === person.role) return;
+    setUpdatingRole(person.id);
+    try {
+      const { data } = await client.patch(`/users/${person.id}/role`, { role: nextRole });
+      toast.success(data.message || "Role updated.");
+      load();
+    } catch (err) {
+      toast.error(apiError(err, "Could not update that role.").message);
+    } finally {
+      setUpdatingRole(null);
+    }
+  };
 
   const confirmRemove = async () => {
     setRemoving(true);
@@ -54,12 +67,12 @@ export default function AdminUsers() {
   };
 
   return (
-    <Layout title="People" subtitle="Everyone with a VenueHub account on your campus.">
+    <Layout title="People" subtitle="Everyone with a VenueHub account.">
       <div className="toolbar">
         <div className="search-box">
           <Search />
           <input
-            placeholder="Search by name, email, or department"
+            placeholder="Search by name, email, or organization"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -102,7 +115,7 @@ export default function AdminUsers() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Role</th>
-                  <th>Department or club</th>
+                  <th>Organization / team</th>
                   <th>Bookings</th>
                   <th>Joined</th>
                   <th />
@@ -114,13 +127,23 @@ export default function AdminUsers() {
                     <td data-label="Name">{u.name}</td>
                     <td data-label="Email">{u.email}</td>
                     <td data-label="Role">
-                      <span className="badge badge-role">{u.role.toLowerCase()}</span>
+                      <select
+                        className="filter-select"
+                        value={u.role}
+                        disabled={updatingRole === u.id || u.role === "SUPER_ADMIN"}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        aria-label={`Change role for ${u.name}`}
+                      >
+                        <option value="CUSTOMER">Customer</option>
+                        <option value="VENUE_OWNER">Venue owner</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
                     </td>
-                    <td data-label="Department">{u.department || "—"}</td>
+                    <td data-label="Organization">{u.organization || "—"}</td>
                     <td data-label="Bookings">{u.bookingCount}</td>
                     <td data-label="Joined">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td data-label="">
-                      {u.role !== "ADMIN" && (
+                      {u.role !== "ADMIN" && u.role !== "SUPER_ADMIN" && (
                         <button
                           className="btn btn-danger btn-sm"
                           onClick={() => setRemoveTarget(u)}

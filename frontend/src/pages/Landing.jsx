@@ -12,7 +12,7 @@ const FEATURES = [
   {
     icon: CalendarCheck2,
     title: "Real-time availability",
-    text: "See every hall, classroom, and auditorium's open slots the moment they change — no more calling the office to check.",
+    text: "See every function hall, banquet venue, auditorium, and event space's open slots the moment they change — no more calling the office to check.",
   },
   {
     icon: ShieldAlert,
@@ -22,22 +22,22 @@ const FEATURES = [
   {
     icon: Bell,
     title: "Structured approvals",
-    text: "Requests route straight to admins with everything they need — purpose, headcount, and department — for a fast decision.",
+    text: "Requests route straight to admins with everything they need — purpose, headcount, and organization — for a fast decision.",
   },
   {
     icon: BarChart3,
     title: "Utilization analytics",
-    text: "Track which venues are in demand, which sit idle, and how booking volume shifts across the term.",
+    text: "Track which venues are in demand, which sit idle, and how booking volume shifts across the season.",
   },
   {
     icon: Building2,
     title: "One venue directory",
-    text: "Auditoriums, seminar halls, function halls, and classrooms — capacity, amenities, and location in a single catalog.",
+    text: "Function halls, banquet spaces, conference venues, and event spaces — capacity, amenities, and location in a single catalog.",
   },
   {
     icon: Users,
     title: "Built for every role",
-    text: "Students, faculty, clubs, departments, and admins each get a workflow suited to how they actually book space.",
+    text: "Customers, venue owners, and administrators each get a workflow suited to how they actually book space.",
   },
 ];
 
@@ -103,16 +103,16 @@ export default function Landing() {
         <div className="landing-hero-visual">
           <div className="mock-card">
             <div className="mock-card-top">
-              <span className="mock-card-title">Kalam Auditorium</span>
+              <span className="mock-card-title">Grand Celebration Hall</span>
               <span className="badge badge-approved">Approved</span>
             </div>
             <div className="mock-schedule-row">
               <span className="mock-schedule-time">09:00–11:00</span>
-              <span>Convocation rehearsal</span>
+              <span>Wedding setup</span>
             </div>
             <div className="mock-schedule-row">
               <span className="mock-schedule-time">14:00–17:00</span>
-              <span>Tech fest — opening ceremony</span>
+              <span>Annual conference — opening session</span>
             </div>
           </div>
           <div className="mock-card">
@@ -136,7 +136,7 @@ export default function Landing() {
               <span className="badge badge-pending">3 new</span>
             </div>
             <p style={{ fontSize: 12.5, color: "var(--slate)" }}>
-              Robotics Club requested Function Hall A for Sat, 10:00–13:00.
+              Apex Events requested Grand Celebration Hall for Sat, 10:00–13:00.
             </p>
           </div>
         </div>
@@ -166,20 +166,20 @@ export default function Landing() {
       <section className="landing-section" style={{ paddingTop: 0 }}>
         <div className="role-strip">
           <div className="role-item">
-            <b>Students</b>
-            <span>Book classrooms and halls for club activities, projects, and events in minutes.</span>
+            <b>Customers</b>
+            <span>Compare function halls and event spaces, then book the right one in minutes.</span>
           </div>
           <div className="role-item">
-            <b>Faculty</b>
-            <span>Reserve seminar halls for lectures, guest talks, and department sessions.</span>
+            <b>Venue owners</b>
+            <span>Manage availability, pricing, services, and bookings for every venue you own.</span>
           </div>
           <div className="role-item">
-            <b>Clubs</b>
-            <span>Coordinate fests and celebrations without chasing approvals over chat.</span>
+            <b>Event organizers</b>
+            <span>Coordinate weddings, conferences, celebrations, launches, and private events in one place.</span>
           </div>
           <div className="role-item">
-            <b>Departments</b>
-            <span>Plan recurring academic use around other campus activity, conflict-free.</span>
+            <b>Organizations</b>
+            <span>Organize recurring events, preferred venues, service partners, and schedules without conflicts.</span>
           </div>
           <div className="role-item">
             <b>Admins</b>

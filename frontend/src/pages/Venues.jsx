@@ -135,7 +135,7 @@ export default function Venues() {
         <EmptyState
           icon={Building2}
           title="No venues match those filters"
-          description="Try a broader search, or clear the filters to see everything on campus."
+          description="Try a broader search, or clear the filters to see everything on venue operations."
           actionLabel={filtersApplied ? "Clear filters" : undefined}
           onAction={clearFilters}
         />

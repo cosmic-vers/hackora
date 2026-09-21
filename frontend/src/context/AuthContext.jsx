@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import client, { TOKEN_KEY, USER_KEY } from "../api/client";
+import client, { USER_KEY } from "../api/client";
+import { supabase } from "../supabase";
 
 const AuthContext = createContext(null);
 
@@ -7,76 +8,113 @@ function readStoredUser() {
   try {
     const raw = localStorage.getItem(USER_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch (err) {
+  } catch {
     localStorage.removeItem(USER_KEY);
     return null;
   }
 }
 
-function persist(token, user) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
+function persistUser(user) {
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
-}
-
-function forget() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  else localStorage.removeItem(USER_KEY);
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(readStoredUser);
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Revalidate the stored session on boot so a deleted or expired account
-  // never lingers in the UI.
-  useEffect(() => {
-    if (!localStorage.getItem(TOKEN_KEY)) {
-      setLoading(false);
-      return;
+  const syncSession = useCallback(async (nextSession) => {
+    if (!nextSession?.access_token) {
+      setUser(null);
+      persistUser(null);
+      return null;
     }
-    client
-      .get("/auth/me")
-      .then(({ data }) => {
-        setUser(data.user);
-        persist(null, data.user);
+
+    const { data } = await client.get("/auth/me");
+    setUser(data.user);
+    persistUser(data.user);
+    return data.user;
+  }, []);
+
+  // Keep the Supabase auth callback lightweight. The API sync runs in a separate
+  // effect so no network call is made from inside onAuthStateChange itself.
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: currentSession } }) => {
+        if (mounted) setSession(currentSession);
       })
       .catch(() => {
-        forget();
-        setUser(null);
+        if (mounted) setSession(null);
+      });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (mounted) setSession(nextSession);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!session) {
+      setUser(null);
+      persistUser(null);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    setLoading(true);
+    syncSession(session)
+      .catch(() => {
+        if (mounted) {
+          setUser(null);
+          persistUser(null);
+        }
       })
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
-  const login = useCallback(async (email, password) => {
-    const { data } = await client.post("/auth/login", { email, password });
-    persist(data.token, data.user);
-    setUser(data.user);
-    return data.user;
-  }, []);
+    return () => {
+      mounted = false;
+    };
+  }, [session, syncSession]);
 
-  const register = useCallback(async (payload) => {
-    const { data } = await client.post("/auth/register", payload);
-    persist(data.token, data.user);
-    setUser(data.user);
-    return data.user;
+  const loginWithGoogle = useCallback(async () => {
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+    if (error) throw error;
   }, []);
 
   const updateUser = useCallback((next) => {
     setUser(next);
-    persist(null, next);
+    persistUser(next);
   }, []);
 
-  const updateToken = useCallback((token) => persist(token, null), []);
-
-  const logout = useCallback(() => {
-    forget();
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    persistUser(null);
     setUser(null);
-    window.location.href = "/login";
+    setSession(null);
+    window.location.href = "/";
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, updateUser, updateToken }),
-    [user, loading, login, register, logout, updateUser, updateToken]
+    () => ({ user, loading, loginWithGoogle, logout, updateUser }),
+    [user, loading, loginWithGoogle, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

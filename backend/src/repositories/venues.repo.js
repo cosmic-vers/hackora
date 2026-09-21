@@ -1,177 +1,93 @@
 const { v4: uuid } = require("uuid");
-const { db } = require("../database");
+const { query } = require("../database");
 
 function toVenue(row) {
   if (!row) return null;
-  let amenities = [];
-  try {
-    amenities = JSON.parse(row.amenities || "[]");
-  } catch (err) {
-    amenities = [];
-  }
+  const parseJson = (value, fallback = []) => {
+    if (Array.isArray(value)) return value;
+    try { return JSON.parse(value || JSON.stringify(fallback)); } catch { return fallback; }
+  };
   return {
     id: row.id,
+    ownerId: row.owner_id || null,
     name: row.name,
     type: row.type,
     location: row.location,
-    capacity: row.capacity,
-    amenities,
-    description: row.description,
-    image: row.image,
+    capacity: Number(row.capacity),
+    amenities: parseJson(row.amenities),
+    description: row.description || "",
+    image: row.image || "venue",
     status: row.status,
-    openTime: row.open_time,
-    closeTime: row.close_time,
+    openTime: String(row.open_time || "08:00").slice(0,5),
+    closeTime: String(row.close_time || "21:00").slice(0,5),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     basePrice: Number(row.base_price || 0),
-    priceUnit: row.price_unit || 'event',
-    photos: (() => { try { return JSON.parse(row.photos || '[]'); } catch { return []; } })(),
-    upcomingBookings: row.upcoming_bookings ?? undefined,
+    priceUnit: row.price_unit || "event",
+    photos: parseJson(row.photos),
+    upcomingBookings: row.upcoming_bookings == null ? undefined : Number(row.upcoming_bookings),
   };
 }
 
-function list({ search = "", type = "", status = "", minCapacity = 0 } = {}) {
+async function list({ search = "", type = "", status = "", minCapacity = 0, ownerId = "" } = {}) {
   const where = [];
-  const params = { today: new Date().toISOString().slice(0, 10) };
-
+  const params = [];
   if (search) {
-    where.push("(v.name LIKE @q OR v.location LIKE @q OR v.type LIKE @q OR v.description LIKE @q)");
-    params.q = `%${search}%`;
+    params.push(`%${search}%`);
+    where.push(`(v.name ILIKE $${params.length} OR v.location ILIKE $${params.length} OR v.type ILIKE $${params.length} OR v.description ILIKE $${params.length})`);
   }
-  if (type) {
-    where.push("v.type = @type");
-    params.type = type;
-  }
-  if (status) {
-    where.push("v.status = @status");
-    params.status = status;
-  }
-  if (minCapacity) {
-    where.push("v.capacity >= @minCapacity");
-    params.minCapacity = Number(minCapacity);
-  }
-
+  if (type) { params.push(type); where.push(`v.type = $${params.length}`); }
+  if (status) { params.push(status); where.push(`v.status = $${params.length}`); }
+  if (minCapacity) { params.push(Number(minCapacity)); where.push(`v.capacity >= $${params.length}`); }
+  if (ownerId) { params.push(ownerId); where.push(`v.owner_id = $${params.length}`); }
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const rows = db
-    .prepare(
-      `SELECT v.*,
-              (SELECT COUNT(*) FROM bookings b
-                WHERE b.venue_id = v.id AND b.status = 'APPROVED' AND b.date >= @today) AS upcoming_bookings
-       FROM venues v ${clause}
-       ORDER BY v.capacity DESC, v.name ASC`
-    )
-    .all(params);
-
+  params.push(new Date().toISOString().slice(0,10));
+  const { rows } = await query(
+    `SELECT v.*,
+       (SELECT COUNT(*) FROM bookings b WHERE b.venue_id=v.id AND b.status='APPROVED' AND b.date >= $${params.length}) AS upcoming_bookings
+     FROM venues v ${clause}
+     ORDER BY v.capacity DESC, v.name ASC`, params
+  );
   return rows.map(toVenue);
 }
 
-function findById(id) {
-  return toVenue(db.prepare("SELECT * FROM venues WHERE id = ?").get(id));
+async function findById(id) {
+  const { rows } = await query("SELECT * FROM venues WHERE id=$1", [id]);
+  return toVenue(rows[0]);
 }
 
-function distinctTypes() {
-  return db
-    .prepare("SELECT DISTINCT type FROM venues ORDER BY type")
-    .all()
-    .map((r) => r.type);
+async function distinctTypes() {
+  const { rows } = await query("SELECT DISTINCT type FROM venues ORDER BY type");
+  return rows.map((r) => r.type);
 }
 
-function create(data) {
-  const now = new Date().toISOString();
-  const venue = {
-    id: uuid(),
-    name: data.name.trim(),
-    type: data.type.trim(),
-    location: data.location.trim(),
-    capacity: Number(data.capacity),
-    amenities: JSON.stringify(Array.isArray(data.amenities) ? data.amenities : []),
-    description: (data.description || "").trim(),
-    image: data.image || "venue",
-    status: data.status || "ACTIVE",
-    open_time: data.openTime || "08:00",
-    close_time: data.closeTime || "21:00",
-    base_price: Number(data.basePrice || 0),
-    price_unit: data.priceUnit || "event",
-    photos: JSON.stringify(Array.isArray(data.photos) ? data.photos : []),
-    created_at: now,
-    updated_at: now,
-  };
-  db.prepare(
-    `INSERT INTO venues
-       (id, name, type, location, capacity, amenities, description, image, status, open_time, close_time, base_price, price_unit, photos, created_at, updated_at)
-     VALUES
-       (@id, @name, @type, @location, @capacity, @amenities, @description, @image, @status, @open_time, @close_time, @base_price, @price_unit, @photos, @created_at, @updated_at)`
-  ).run(venue);
-  return findById(venue.id);
+async function create(data) {
+  const id = uuid();
+  const { rows } = await query(
+    `INSERT INTO venues (id,owner_id,name,type,location,capacity,amenities,description,image,status,open_time,close_time,base_price,price_unit,photos)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13,$14,$15::jsonb) RETURNING *`,
+    [id, data.ownerId || null, data.name.trim(), data.type.trim(), data.location.trim(), Number(data.capacity), JSON.stringify(Array.isArray(data.amenities)?data.amenities:[]), (data.description||"").trim(), data.image||"venue", data.status||"ACTIVE", data.openTime||"08:00", data.closeTime||"21:00", Number(data.basePrice||0), data.priceUnit||"event", JSON.stringify(Array.isArray(data.photos)?data.photos:[])]
+  );
+  return toVenue(rows[0]);
 }
 
-const UPDATABLE = {
-  name: "name",
-  type: "type",
-  location: "location",
-  capacity: "capacity",
-  description: "description",
-  image: "image",
-  status: "status",
-  openTime: "open_time",
-  closeTime: "close_time",
-  basePrice: "base_price",
-  priceUnit: "price_unit",
-  photos: "photos",
-};
-
-function update(id, data) {
-  const sets = [];
-  const params = { id, updated_at: new Date().toISOString() };
-
-  Object.entries(UPDATABLE).forEach(([key, column]) => {
-    if (data[key] !== undefined) {
-      sets.push(`${column} = @${column}`);
-      params[column] = column === "capacity" ? Number(data[key]) : data[key];
-    }
-  });
-  if (data.photos !== undefined) {
-    sets.push("photos = @photos");
-    params.photos = JSON.stringify(Array.isArray(data.photos) ? data.photos : []);
+const ALLOWED = { name:"name", type:"type", location:"location", capacity:"capacity", description:"description", image:"image", status:"status", openTime:"open_time", closeTime:"close_time", basePrice:"base_price", priceUnit:"price_unit" };
+async function update(id, data) {
+  const sets=[]; const params=[];
+  for (const [key,col] of Object.entries(ALLOWED)) {
+    if (data[key] !== undefined) { params.push(key === "capacity" || key === "basePrice" ? Number(data[key]) : data[key]); sets.push(`${col}=$${params.length}`); }
   }
-  if (data.amenities !== undefined) {
-    sets.push("amenities = @amenities");
-    params.amenities = JSON.stringify(Array.isArray(data.amenities) ? data.amenities : []);
-  }
+  if (data.photos !== undefined) { params.push(JSON.stringify(Array.isArray(data.photos)?data.photos:[])); sets.push(`photos=$${params.length}::jsonb`); }
+  if (data.amenities !== undefined) { params.push(JSON.stringify(Array.isArray(data.amenities)?data.amenities:[])); sets.push(`amenities=$${params.length}::jsonb`); }
   if (!sets.length) return findById(id);
-
-  db.prepare(`UPDATE venues SET ${sets.join(", ")}, updated_at = @updated_at WHERE id = @id`).run(
-    params
-  );
-  return findById(id);
+  params.push(id);
+  const { rows } = await query(`UPDATE venues SET ${sets.join(", ")}, updated_at=now() WHERE id=$${params.length} RETURNING *`, params);
+  return toVenue(rows[0]);
 }
 
-function remove(id) {
-  return db.prepare("DELETE FROM venues WHERE id = ?").run(id).changes > 0;
-}
+async function remove(id) { const r = await query("DELETE FROM venues WHERE id=$1", [id]); return r.rowCount > 0; }
+async function ownerOf(id) { const { rows } = await query("SELECT owner_id FROM venues WHERE id=$1", [id]); return rows[0]?.owner_id || null; }
+async function hasActiveBookings(id) { const { rows } = await query("SELECT COUNT(*)::int AS n FROM bookings WHERE venue_id=$1 AND status IN ('PENDING','APPROVED')", [id]); return Number(rows[0]?.n||0)>0; }
+async function count() { const { rows } = await query("SELECT COUNT(*)::int AS n FROM venues"); return Number(rows[0]?.n||0); }
 
-function hasActiveBookings(id) {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS n FROM bookings WHERE venue_id = ? AND status IN ('PENDING','APPROVED')"
-      )
-      .get(id).n > 0
-  );
-}
-
-function count() {
-  return db.prepare("SELECT COUNT(*) AS n FROM venues").get().n;
-}
-
-module.exports = {
-  list,
-  findById,
-  distinctTypes,
-  create,
-  update,
-  remove,
-  hasActiveBookings,
-  count,
-  toVenue,
-};
+module.exports = { list, findById, distinctTypes, create, update, remove, hasActiveBookings, ownerOf, count, toVenue };

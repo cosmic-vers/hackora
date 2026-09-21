@@ -5,19 +5,25 @@ services:
     region: singapore
     plan: free
     rootDir: backend
-    buildCommand: npm ci
+    buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
-      - key: JWT_SECRET
-        generateValue: true
-      - key: JWT_EXPIRES_IN
-        value: 7d
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: CORS_ORIGINS
-        value: https://venuehub-web.onrender.com
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
       - key: SEED_ON_START
         value: true
       - key: AI_PROVIDER
@@ -31,7 +37,7 @@ services:
     runtime: static
     name: venuehub-web
     rootDir: frontend
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: dist
     autoDeployTrigger: commit
     routes:
@@ -41,3 +47,7 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://venuehub-api.onrender.com/api
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false

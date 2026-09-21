@@ -1,289 +1,208 @@
-# VenueHub — Function Hall Booking & Management System
+# VenueHub — Function Hall & Event Venue Platform
 
-**Book smarter. Manage better.**
+**Book smarter. Manage better. Run better events.**
 
-VenueHub is a centralised platform where students, faculty, clubs, departments, and
-administrators discover, book, and manage college function halls, seminar halls,
-auditoriums, classrooms, and other event venues — replacing registers, WhatsApp
-messages, and scattered departmental processes with one system that gives real-time
-availability, an approval workflow, conflict detection that actually holds under
-concurrency, and admin control.
+VenueHub is a scalable booking and operations platform for function halls, banquet venues, conference centres, auditoriums, outdoor spaces, and other event venues. It is designed for customers, venue owners, event organizers, organisations, and administrators rather than a single college or campus.
 
----
+## What VenueHub does
 
-## Features
+- Discover venues by type, location, capacity, facilities, price, photos, and availability.
+- Check date/time availability before requesting a booking.
+- Prevent approved double-bookings with PostgreSQL constraints and transaction-level locking.
+- Let customers request venues for weddings, birthdays, conferences, receptions, launches, workshops, celebrations, and other events.
+- Attach catering, decoration, photography, sound/AV, seating, cleaning, security, electrical, and maintenance services to bookings.
+- Manage venue maintenance and blocked periods.
+- Route bookings through approval, payment, cancellation, and refund workflows.
+- Generate digital booking receipts and in-app notifications.
+- Provide admin analytics for utilisation, booking volume, approvals, cancellations, and revenue.
+- Recommend venues using AI when enabled, grounded in live venue, availability, facility, pricing, location, and support-service data. A transparent local scoring engine remains available as a fallback.
+- Give venue owners their own venue-management scope so the platform can grow into a multi-venue marketplace.
 
-**For everyone who books**
-- Venue directory with search, type, capacity, and availability filters
-- A visual day timeline: see what is already booked, with your requested slot drawn
-  over it before you submit
-- Clash warnings while you fill the form, not after you press send
-- Status tracking for every request, with the admin's reason attached
-- In-app notifications when a request is approved, rejected, or cancelled
-- Profile and password management
+## Production architecture
 
-**For administrators**
-- One queue of pending requests, with search, venue filter, and pagination
-- Approve or reject with remarks; approving auto-rejects every request that clashes
-  with the slot, and notifies those requesters
-- Venue management including per-venue opening hours, maintenance status, and amenities
-- People management with booking counts per account
-- Analytics: approval rate, venue utilisation in bookings and hours, monthly trend,
-  peak start times, busiest days, and category mix
+```text
+Google
+  │
+  ▼
+Supabase Auth ───────────────┐
+  │ JWT                      │
+  ▼                          ▼
+VenueHub React         VenueHub Express API
+(Render Static)              │
+                             ▼
+                       Supabase PostgreSQL
+                             │
+                    bookings / venues / users /
+                    services / payments / refunds /
+                    maintenance / notifications
+```
 
-**Throughout**
-- Light and dark themes
-- Works on a phone — the navigation is a drawer, tables become stacked cards
-- Keyboard focus styles, skip link, ARIA-labelled controls, reduced-motion support
+**Frontend:** React 18 + Vite + React Router + Recharts + Lucide + custom CSS
 
----
+**Backend:** Node.js + Express + PostgreSQL (`pg`) + Supabase Auth verification
 
-## Tech stack
+**Database:** Supabase PostgreSQL
 
-**Frontend:** React 18, Vite, React Router, Recharts (lazy-loaded), Lucide icons, and
-hand-written CSS driven by a token system — no UI framework.
+**Authentication:** Supabase Auth with Google OAuth — no demo passwords
 
-**Backend:** Node.js, Express, JWT auth, bcrypt password hashing, and **SQLite via
-better-sqlite3** — a real database with foreign keys, indexes, transactions, and WAL
-mode, in a single file with no server to install.
-
----
+**AI:** Optional OpenAI ranking/explanation layer with deterministic fallback
 
 ## Project structure
 
-```
+```text
 venuehub/
 ├── backend/
-│   ├── server.js                       # Express app, security middleware, shutdown
-│   ├── nodemon.json
+│   ├── server.js
+│   ├── .env.example
 │   └── src/
-│       ├── config/env.js               # Env loading + secret validation
-│       ├── database/
-│       │   ├── index.js                # Connection, schema, pragmas, guard trigger
-│       │   └── migrate-json.js         # One-time import from the old JSON store
-│       ├── repositories/               # users, venues, bookings, notifications
-│       ├── middleware/                 # auth (JWT + roles), errors
-│       ├── utils/validate.js           # Field-level request validation
-│       ├── routes/                     # auth, venues, bookings, analytics, users, notifications
-│       └── seed.js                     # Demo accounts, venues, sample bookings
-└── frontend/
-    └── src/
-        ├── api/client.js               # Axios instance + error normaliser
-        ├── context/                    # Auth, Theme, Toast
-        ├── components/                 # Layout, timeline, toasts, skeletons, dialogs…
-        ├── pages/                      # Landing, auth, dashboard, booking, admin, profile
-        └── styles/                     # Tokens (light + dark) and component styles
+│       ├── config/env.js
+│       ├── database/index.js
+│       ├── repositories/
+│       ├── middleware/
+│       ├── routes/
+│       ├── services/venueRecommender.js
+│       ├── utils/validate.js
+│       └── seed.js
+├── frontend/
+│   ├── .env.example
+│   └── src/
+│       ├── api/client.js
+│       ├── context/
+│       ├── components/
+│       ├── pages/
+│       ├── styles/
+│       └── supabase.js
+├── supabase/
+│   ├── schema.sql
+│   └── migrations/001_organization.sql
+├── render.yaml
+├── START_HERE.md
+└── DEPLOY_RENDER.md
 ```
 
+## Authentication
 
-## SE-04 checklist coverage
+Every user signs in with Google through Supabase Auth. There are no VenueHub demo usernames or passwords.
 
-VenueHub now maps directly to the judge checklist: customer registration/login, venue listing with capacity/location/photos/facilities/pricing, real-time availability, date/time booking, double-booking prevention, online demo checkout, digital receipts, cancellation and refund workflow, event types including wedding/birthday/conference/reception, catering/decoration/photography/sound/seating services, booking history, admin dashboard, maintenance and blocked dates, notifications, revenue analytics, and AI-assisted venue recommendations.
+New Google accounts become `CUSTOMER` automatically. Administrator access is controlled by the backend `ADMIN_EMAILS` environment variable. Administrators can promote accounts to `VENUE_OWNER` or `ADMIN` from the People screen.
 
-### AI Venue Recommendation
-The AI Venue Advisor accepts event requirements and ranks venues using capacity, availability, facilities, event context, location, support services, and pricing. When `AI_PROVIDER=openai` is configured it can generate AI explanations/ranking; otherwise a deterministic local scoring engine keeps the feature available.
+The frontend receives the user's Supabase session and sends the access token in the `Authorization: Bearer <token>` header. The Express API verifies that token with Supabase before serving protected data.
 
-### Payments
-The included checkout is a working **demo online payment flow** that records a transaction, marks the booking paid, and generates a digital receipt. It is deliberately labelled demo mode. Connect Razorpay/Stripe credentials and replace the provider call before processing real money.
+## Database
 
----
+VenueHub has been moved from local SQLite/demo storage to **Supabase PostgreSQL**.
 
-## Getting started
+Run `supabase/schema.sql` in the Supabase SQL Editor for a new project. If you are upgrading an older VenueHub database that still uses the `department` column, run `supabase/migrations/001_organization.sql` after the schema file.
 
-### 1. Backend
+PostgreSQL is a better fit for the scaled architecture because it provides managed persistence, strong constraints, concurrent transactions, indexing, and safe overlap protection for bookings. Supabase also combines the PostgreSQL database with managed authentication.
+
+## Local setup
+
+### 1. Supabase
+
+Create a Supabase project and run `supabase/schema.sql`.
+
+### 2. Backend
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
+npm run dev
 ```
 
-Generate a secret and put it in `.env` as `JWT_SECRET`:
+### 3. Frontend
 
-```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
-
-Then:
-
-```bash
-npm run dev          # http://localhost:5000
-```
-
-On first run the server creates `backend/data/venuehub.db`, imports any old JSON data,
-and seeds demo accounts, six venues, and a few sample bookings.
-
-### 2. Frontend
-
-The repository intentionally does **not** ship `node_modules`. Install dependencies with `npm install` in each folder so Vite/React and the native SQLite module are installed for your machine.
-
+Open another terminal:
 
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173
+cp .env.example .env
+npm run dev
 ```
 
-Vite proxies `/api` to `http://localhost:5000`, so just open
-**http://localhost:5173**.
+Open `http://localhost:5173`.
 
----
+## Environment variables
 
-## Demo accounts
+Backend:
 
-| Role    | Email                 | Password    |
-|---------|-----------------------|-------------|
-| Admin   | admin@venuehub.edu     | Admin@123   |
-| Faculty | faculty@venuehub.edu   | Faculty@123 |
-| Student | student@venuehub.edu   | Student@123 |
-| Club    | club@venuehub.edu      | Club@123    |
-
-Anyone can register as a Student, Faculty, Club, or Department. Admin accounts are
-only created by the seed script, so nobody can sign themselves up as one.
-
-Set `SEED_ON_START=false` before pointing this at a real campus database.
-
-The included `backend/.env` is configured for local development with the rule-based AI fallback and a stable development JWT secret. Replace that secret before any real deployment.
-
----
-
-## The database
-
-SQLite through better-sqlite3. Seven core tables — `users`, `venues`, `bookings`,
-`notifications`, `venue_services`, `booking_services`, and `venue_blocks` — with
-foreign keys on, cascading deletes where safe, and indexes on the lookups that matter
-for availability, services, maintenance blocks, and personal booking lists.
-
-**Why the change matters.** The previous JSON-file store did read-modify-write on
-disk with no locking, so two people submitting at the same moment could both pass the
-"is this slot free?" check and both get written. Now every write goes through a
-repository, and booking creation and approval each run inside a single transaction:
-the overlap check and the insert are atomic. A `BEFORE UPDATE` trigger is the backstop
-— it aborts any attempt to approve a booking that overlaps one already approved, no
-matter which code path tries.
-
-**Migrating existing data.** If `backend/data/*.json` exists from the old version, it
-is imported on first boot and the files are renamed to `*.json.imported` so it never
-runs twice. You can also run it manually:
-
-```bash
-npm run migrate:json
+```env
+NODE_ENV=development
+PORT=5000
+DATABASE_URL=YOUR_SUPABASE_SESSION_POOLER_CONNECTION_STRING
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+ADMIN_EMAILS=your-admin@gmail.com
+APP_TIMEZONE=Asia/Kolkata
+SEED_ON_START=true
+AI_PROVIDER=fallback
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-**Moving to Postgres later.** Every query lives in `src/repositories/`. Swapping the
-driver means rewriting the repository layer; nothing in the routes touches SQL.
+Frontend:
 
----
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+```
 
-## How conflict detection works
+Never expose the Supabase secret key or an OpenAI secret in frontend variables.
 
-Each booking carries a `venueId`, `date`, `startTime`, and `endTime`.
+## Google OAuth setup
 
-1. **On submit** — the request is checked against everything already on that venue and
-   date. Overlapping an **approved** booking is refused outright, and the clashing slot
-   is returned so the form can show it. Overlapping only **pending** requests is
-   allowed, with a warning that whichever is approved first gets the room.
-2. **On approve** — conflicts are re-checked (in case something changed while the
-   request sat in the queue), then every other pending request overlapping that slot is
-   rejected automatically with an explanatory note, and each of those requesters is
-   notified.
-3. **Always** — two approved bookings can never overlap. That invariant is enforced by
-   the transaction and by a database trigger.
+1. In Google Cloud Console create a Web application OAuth client.
+2. In Supabase Authentication → Providers → Google, enable Google and enter the Google Client ID and Client Secret.
+3. In Google Cloud, use the Supabase Google provider callback URL as the OAuth redirect URI.
+4. In Supabase Authentication → URL Configuration, set the Site URL to your public VenueHub frontend URL.
+5. Add these VenueHub callback URLs to the Supabase allowed Redirect URLs:
+   - `http://localhost:5173/auth/callback`
+   - `https://YOUR_FRONTEND_DOMAIN/auth/callback`
+6. In Google Cloud, add the frontend URL to Authorized JavaScript origins.
 
-Bookings are also validated against the venue's opening hours, its capacity, and a
-15-minute minimum duration, and cannot be placed in the past.
+The app calls `supabase.auth.signInWithOAuth({ provider: 'google' })` and then syncs the authenticated identity with the VenueHub `users` table.
 
----
+## SE-04 coverage
 
-## Security
+VenueHub covers the function-hall requirement with:
 
-- `JWT_SECRET` is required. In production the server refuses to start without a strong
-  one; in development it generates a temporary secret and warns.
-- Passwords are bcrypt-hashed and must be at least 8 characters with a letter and a
-  number.
-- Login returns the same message for an unknown email and a wrong password, so the form
-  cannot be used to discover which accounts exist.
-- Rate limiting: 20 attempts per 15 minutes on login and registration, 300 requests per
-  minute across the rest of the API.
-- CORS is an allowlist — set `CORS_ORIGINS` for your deployed frontend.
-- `helmet` sets security headers; request bodies are capped at 100 kB.
-- Role checks run server-side on every protected route; the frontend's route guards are
-  convenience, not security.
+- customer Google registration/login
+- venue listings with capacity, location, photos, facilities, pricing, and dates
+- availability calendar/timeline
+- date/time-slot bookings
+- automatic double-booking prevention
+- demo online payment workflow
+- booking confirmation and digital receipt
+- cancellation and refund workflow
+- event categories such as wedding, birthday, conference, and reception
+- catering, decoration, photography, sound, and seating services
+- customer booking history
+- admin dashboard
+- maintenance and blocked dates
+- in-app automated notifications
+- booking and revenue analytics
 
----
+The platform also adds AI venue recommendations, support contracts, service-resource conflict detection, venue-owner management, and a broader event operations model.
 
-## API
+## AI Venue Advisor
 
-| Method | Endpoint | Who | Description |
-|--------|----------|-----|-------------|
-| POST | `/api/auth/register` | Public | Register a requester account |
-| POST | `/api/auth/login` | Public | Log in and receive a JWT |
-| GET | `/api/auth/me` | Any | Validate the current session |
-| GET | `/api/venues` | Public | Search/filter venues |
-| GET | `/api/venues/:id` | Public | Venue details, price and photos |
-| GET | `/api/venues/:id/availability` | Public | Bookings and maintenance blocks for a date |
-| POST/PUT/DELETE | `/api/venues...` | Admin | Manage venues |
-| GET/POST | `/api/bookings` | Any | Create and list bookings |
-| PATCH | `/api/bookings/:id/status` | Admin | Approve/reject requests |
-| POST | `/api/bookings/:id/pay` | Owner/Admin | Demo online payment |
-| POST/PATCH | `/api/bookings/:id/refund` | Owner/Admin | Refund request and decision |
-| GET/POST | `/api/services` | Any/Admin | Venue support contracts |
-| GET/POST/DELETE | `/api/blocks` | Any/Admin | Maintenance and blocked periods |
-| POST | `/api/recommendations` | Any | AI/rule-based venue recommendation |
-| GET | `/api/analytics/overview` | Admin | Booking, utilisation and revenue analytics |
-| GET/PATCH/DELETE | `/api/notifications...` | Any | In-app notifications |
+The recommendation endpoint accepts event requirements such as:
 
+- title and purpose
+- event category
+- expected attendees
+- exact date/time
+- preferred location
+- required facilities/equipment
+- required support services
 
-## Design notes
+It evaluates those requirements against live venue, booking, maintenance-block, service-contract, and pricing data.
 
-A collegiate-modern identity rather than generic SaaS: deep ink navy, brass gold, warm
-paper, with Fraunces for display type and Inter for UI text. Every colour is a token
-defined twice, once per theme, so dark mode is a variable swap rather than a second
-stylesheet. The brass accent is the one loud thing; everything else stays quiet.
-
----
-
-## Possible next steps
-
-- Email or SMS on approval and rejection
-- Recurring bookings and calendar (.ics) export
-- QR check-in for approved events
-- Move to Postgres if you need more than one API instance
-- Automated tests around the conflict logic
-
-
-## New: Venue support contracts
-
-VenueHub now includes a venue-specific **Support Contracts** layer. Admins can keep on-site workers and service providers in one place — designers, cleaners, security, technical staff, decorators, electricians and maintenance teams — with:
-
-- Provider/contact details
-- Contract reference and validity dates
-- Scope of work
-- Rate and billing unit
-- Active/expired/inactive status
-- Venue-specific assignment
-
-When a user books a venue, active contracts for that venue appear directly inside the booking form. Users can select the support services they need along with the hall booking, and the selected services are attached to the booking for admin visibility.
-
-Admin navigation: **Support contracts**.
-
-
-## AI Venue Recommendation
-
-VenueHub now includes an **AI Venue Advisor** at `/app/ai-recommend`.
-
-The recommendation request considers:
-- Event title, purpose and category
-- Expected attendees and venue capacity
-- Exact date/time availability
-- Venue opening hours
-- Required amenities/equipment
-- Required support services and contracts
-- Preferred campus location
-- Event/venue context
-
-### AI mode
-Set these in `backend/.env` to enable the AI ranking/explanation layer:
+With AI enabled:
 
 ```env
 AI_PROVIDER=openai
@@ -291,22 +210,28 @@ OPENAI_API_KEY=your_key_here
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-The API sends the event requirements plus live venue/booking/service data to the configured model. The model can rank and explain up to five grounded venue recommendations.
+If the AI provider is unavailable, the system falls back to deterministic scoring and clearly labels the result `LOCAL FALLBACK`.
 
-### Safe fallback
-If the AI provider is not configured or the AI request fails, VenueHub automatically falls back to a transparent local scoring engine. The UI clearly labels this as **LOCAL FALLBACK** instead of pretending that a rule-based result is AI.
+## Payments
 
-### Demo flow
-1. Log in.
-2. Open **AI Venue Advisor**.
-3. Enter an event such as a 250-person technical workshop.
-4. Select Projector, Sound System, Technical support and Cleaning.
-5. Choose a date/time.
-6. Click **Find my best-fit venues**.
-7. Review the fit score, availability, facilities, support services and trade-offs.
-8. Click **Use this venue** to continue to the booking form.
+The current checkout is a **demo payment flow** that records a transaction and generates a digital receipt. For real money, connect a production gateway such as Razorpay or Stripe and verify payments server-side before marking the booking paid.
 
+## Deployment
 
-## Live deployment
+See `DEPLOY_RENDER.md` for the complete Supabase + Google OAuth + Render deployment procedure.
 
-See `DEPLOY_RENDER.md` for the production deployment setup for Render.
+The included `render.yaml` creates:
+
+- `venuehub-api` — Express API
+- `venuehub-web` — React/Vite static site
+
+The frontend can be connected to the public API using `VITE_API_URL`, while the backend uses Supabase PostgreSQL/Auth and the exact frontend URL in `CORS_ORIGINS`.
+
+## Security notes
+
+- Google/Supabase access tokens are verified server-side.
+- The secret Supabase key is backend-only.
+- Role permissions are enforced on the API, not only in React.
+- Helmet, compression, rate limiting, request-size limits, and CORS allowlisting are enabled.
+- PostgreSQL exclusion constraints plus transaction locks prevent approved venue overlaps.
+- No demo credentials are shipped.

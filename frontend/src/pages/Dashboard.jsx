@@ -89,7 +89,7 @@ export default function Dashboard() {
       title={`Welcome, ${user?.name?.split(" ")[0] || "there"}`}
       subtitle={
         isAdmin
-          ? "What's happening across every campus venue today."
+          ? "What's happening across every venue today."
           : "Where your requests stand right now."
       }
       actions={

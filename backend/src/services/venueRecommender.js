@@ -22,20 +22,20 @@ function venueOpen(venue, startTime, endTime) {
     minutes(startTime) < minutes(endTime);
 }
 
-function getCandidates(requirements) {
+async function getCandidates(requirements) {
   const date = requirements.date;
-  const venues = venuesRepo.list({ status: "ACTIVE" });
+  const venues = await venuesRepo.list({ status: "ACTIVE" });
   const requiredAmenities = Array.isArray(requirements.amenities) ? requirements.amenities : [];
   const requiredServices = Array.isArray(requirements.requiredServices) ? requirements.requiredServices : [];
 
-  return venues.map((venue) => {
-    const slots = bookingsRepo.slotsForDate(venue.id, date);
+  return Promise.all(venues.map(async (venue) => {
+    const slots = await bookingsRepo.slotsForDate(venue.id, date);
     const conflicts = slots.filter((slot) =>
       ["PENDING", "APPROVED"].includes(slot.status) &&
       overlaps(requirements.startTime, requirements.endTime, slot.startTime, slot.endTime)
     );
-    const blockedSlots = blocksRepo.overlaps({ venueId: venue.id, date, startTime: requirements.startTime, endTime: requirements.endTime });
-    const activeServices = servicesRepo.list({ venueId: venue.id, status: "ACTIVE" });
+    const blockedSlots = await blocksRepo.overlaps({ venueId: venue.id, date, startTime: requirements.startTime, endTime: requirements.endTime });
+    const activeServices = await servicesRepo.list({ venueId: venue.id, status: "ACTIVE" });
     const services = activeServices.filter((service) =>
       (!service.contractStart || date >= service.contractStart) &&
       (!service.contractEnd || date <= service.contractEnd)
@@ -61,7 +61,7 @@ function getCandidates(requirements) {
       ))
       .map((service) => service.id);
     const serviceConflicts = matchedServiceIds.length
-      ? bookingsRepo.serviceConflicts({
+      ? await bookingsRepo.serviceConflicts({
           serviceIds: matchedServiceIds,
           date,
           startTime: requirements.startTime,
@@ -102,7 +102,7 @@ function getCandidates(requirements) {
       serviceMatches,
       missingServices: requiredServices.filter((needed) => !serviceMatches.includes(needed)),
     };
-  });
+  }));
 }
 
 function scoreCandidate(candidate, requirements) {
@@ -160,8 +160,8 @@ function scoreCandidate(candidate, requirements) {
   return { ...candidate, score, reasons };
 }
 
-function fallbackRecommend(requirements) {
-  const ranked = getCandidates(requirements)
+async function fallbackRecommend(requirements) {
+  const ranked = (await getCandidates(requirements))
     .map((candidate) => scoreCandidate(candidate, requirements))
     .sort((a, b) => b.score - a.score);
 
@@ -261,7 +261,7 @@ Score is an explainable fit score from 0 to 100.`;
   return {
     mode: "ai",
     model: env.OPENAI_MODEL,
-    explanation: "VenueHub used AI to interpret the event requirements and rank the available campus venues, while grounding every recommendation in live venue and booking data.",
+    explanation: "VenueHub used AI to interpret the event requirements and rank the available venues, while grounding every recommendation in live venue and booking data.",
     recommendations,
   };
 }
@@ -288,7 +288,7 @@ async function recommend(requirements) {
   if (clean.startTime >= clean.endTime) throw new Error("End time must be after start time.");
   if (clean.expectedAttendees < 0) throw new Error("Expected attendees cannot be negative.");
 
-  const candidates = getCandidates(clean);
+  const candidates = await getCandidates(clean);
   try {
     const ai = await aiRecommend(clean, candidates);
     if (ai) return ai;

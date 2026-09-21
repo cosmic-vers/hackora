@@ -8,6 +8,7 @@ import Field from "../components/Field";
 import { SkeletonTable } from "../components/Skeleton";
 import client, { apiError } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/AuthContext";
 
 const TABS = [
   { value: "PENDING", label: "Waiting" },
@@ -27,6 +28,8 @@ function formatDate(date) {
 
 export default function AdminBookings() {
   const toast = useToast();
+  const { user } = useAuth();
+  const ownerMode = user?.role === "VENUE_OWNER";
   const [result, setResult] = useState({ bookings: [], total: 0, page: 1, pageSize: 20 });
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("PENDING");
@@ -44,7 +47,7 @@ export default function AdminBookings() {
   const load = useCallback(() => {
     setLoading(true);
     client
-      .get("/bookings", {
+      .get(ownerMode ? "/bookings/manage" : "/bookings", {
         params: {
           status: status || undefined,
           search: search || undefined,
@@ -55,23 +58,23 @@ export default function AdminBookings() {
       .then(({ data }) => setResult(data))
       .catch((err) => toast.error(apiError(err, "Could not load requests.").message))
       .finally(() => setLoading(false));
-  }, [status, search, venueId, page, toast]);
+  }, [status, search, venueId, page, toast, ownerMode]);
 
   useEffect(load, [load]);
 
   useEffect(() => {
     client
-      .get("/bookings", { params: { status: "PENDING", pageSize: 1 } })
+      .get(ownerMode ? "/bookings/manage" : "/bookings", { params: { status: "PENDING", pageSize: 1 } })
       .then(({ data }) => setPendingCount(data.total))
       .catch(() => setPendingCount(0));
   }, [result]);
 
   useEffect(() => {
     client
-      .get("/venues")
+      .get(ownerMode ? "/venues/mine" : "/venues")
       .then(({ data }) => setVenues(data.venues))
       .catch(() => setVenues([]));
-  }, []);
+  }, [ownerMode]);
 
   const openDecision = (booking, action) => {
     setDecision({ booking, action });
@@ -120,8 +123,8 @@ export default function AdminBookings() {
 
   return (
     <Layout
-      title="Booking requests"
-      subtitle="Approve or reject requests. Approving a slot clears any request that clashes with it."
+      title={ownerMode ? "Venue bookings" : "Booking requests"}
+      subtitle={ownerMode ? "View booking activity for the venues you own. Approval decisions remain with platform administrators." : "Approve or reject requests. Approving a slot clears any request that clashes with it."}
     >
       <div className="tabs" role="tablist">
         {TABS.map((tab) => (
@@ -215,7 +218,7 @@ export default function AdminBookings() {
                       {b.requesterName}
                       <div className="meta-line">
                         {b.requesterRole?.toLowerCase()}
-                        {b.requesterDepartment ? ` · ${b.requesterDepartment}` : ""}
+                        {b.requesterOrganization ? ` · ${b.requesterOrganization}` : ""}
                       </div>
                     </td>
                     <td data-label="When">
@@ -235,13 +238,13 @@ export default function AdminBookings() {
                       )}
                     </td>
                     <td data-label="">
-                      {b.paymentStatus === "REFUND_PENDING" && (
+                      {!ownerMode && b.paymentStatus === "REFUND_PENDING" && (
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button className="btn btn-sm btn-primary" onClick={async()=>{try{await client.patch(`/bookings/${b.id}/refund`,{status:"APPROVED",amount:b.refundAmount});toast.success("Refund approved.");load()}catch(e){toast.error(apiError(e,"Could not approve refund.").message)}}}><RotateCcw size={14}/> Approve refund</button>
                           <button className="btn btn-danger btn-sm" onClick={async()=>{try{await client.patch(`/bookings/${b.id}/refund`,{status:"REJECTED",amount:b.refundAmount});toast.success("Refund rejected; booking remains paid.");load()}catch(e){toast.error(apiError(e,"Could not reject refund.").message)}}}>Reject refund</button>
                         </div>
                       )}
-                      {b.status === "PENDING" && (
+                      {!ownerMode && b.status === "PENDING" && (
                         <div style={{ display: "flex", gap: 6 }}>
                           <button
                             className="btn btn-sm"

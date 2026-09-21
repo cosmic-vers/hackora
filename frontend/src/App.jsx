@@ -22,10 +22,16 @@ import Payment from "./pages/Payment";
 import Receipt from "./pages/Receipt";
 import AdminBlocks from "./pages/AdminBlocks";
 
+function AuthCallback() {
+  const { loading } = useAuth();
+  if (!loading) return <Navigate to="/app" replace />;
+  return <div className="center-loading" style={{ minHeight: "100vh" }}><div className="spinner" /></div>;
+}
+
 // Charts pull in Recharts, which is large — load it only when analytics is opened.
 const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
 
-const REQUESTER_ROLES = ["STUDENT", "FACULTY", "CLUB", "DEPARTMENT"];
+const REQUESTER_ROLES = ["CUSTOMER", "VENUE_OWNER"];
 
 function GuestOnly({ children }) {
   const { user, loading } = useAuth();
@@ -59,6 +65,8 @@ export default function App() {
           </GuestOnly>
         }
       />
+
+      <Route path="/auth/callback" element={<AuthCallback />} />
 
       <Route
         path="/app"
@@ -136,7 +144,7 @@ export default function App() {
       <Route
         path="/app/admin/bookings"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN", "VENUE_OWNER"]}>
             <AdminBookings />
           </Private>
         }
@@ -144,7 +152,7 @@ export default function App() {
       <Route
         path="/app/admin/venues"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN", "VENUE_OWNER"]}>
             <AdminVenues />
           </Private>
         }
@@ -152,7 +160,7 @@ export default function App() {
       <Route
         path="/app/admin/users"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN"]}>
             <AdminUsers />
           </Private>
         }
@@ -160,7 +168,7 @@ export default function App() {
       <Route
         path="/app/admin/services"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN", "VENUE_OWNER"]}>
             <AdminServices />
           </Private>
         }
@@ -168,7 +176,7 @@ export default function App() {
       <Route
         path="/app/admin/blocks"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN"]}>
             <AdminBlocks />
           </Private>
         }
@@ -176,7 +184,7 @@ export default function App() {
       <Route
         path="/app/admin/analytics"
         element={
-          <Private roles={["ADMIN"]}>
+          <Private roles={["ADMIN", "SUPER_ADMIN"]}>
             <Suspense
               fallback={
                 <div className="center-loading" style={{ minHeight: "60vh" }}>

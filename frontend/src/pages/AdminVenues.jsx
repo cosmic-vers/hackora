@@ -7,6 +7,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import { SkeletonTable } from "../components/Skeleton";
 import client, { apiError } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/AuthContext";
 
 const VENUE_TYPES = [
   "Auditorium",
@@ -53,6 +54,7 @@ const blankVenue = {
 
 export default function AdminVenues() {
   const toast = useToast();
+  const { user } = useAuth();
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -70,7 +72,7 @@ export default function AdminVenues() {
   const load = useCallback(() => {
     setLoading(true);
     client
-      .get("/venues", { params: { search: search || undefined } })
+      .get(user?.role === "VENUE_OWNER" ? "/venues/mine" : "/venues", { params: { search: search || undefined } })
       .then(({ data }) => setVenues(data.venues))
       .catch((err) => toast.error(apiError(err, "Could not load venues.").message))
       .finally(() => setLoading(false));
@@ -170,8 +172,8 @@ export default function AdminVenues() {
 
   return (
     <Layout
-      title="Venues"
-      subtitle="Add rooms, set opening hours, and take a space off the list when it's unavailable."
+      title={user?.role === "VENUE_OWNER" ? "My venues" : "Venues"}
+      subtitle={user?.role === "VENUE_OWNER" ? "Manage the venues you own, their pricing, photos, hours, and booking status." : "Add venues, set opening hours, and take a space off the list when it's unavailable."}
       actions={
         <button className="btn btn-accent" onClick={openCreate}>
           <Plus size={16} /> Add venue

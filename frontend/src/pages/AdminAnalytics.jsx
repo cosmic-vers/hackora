@@ -122,7 +122,7 @@ export default function AdminAnalytics() {
   const hasBookings = totals.totalBookings > 0;
 
   return (
-    <Layout title="Analytics" subtitle="How campus spaces are actually being used.">
+    <Layout title="Analytics" subtitle="How venue operations spaces are actually being used.">
       <div className="grid-stats">
         <StatCard label="Total requests" value={totals.totalBookings} icon={CalendarCheck2} />
         <StatCard label="Waiting on you" value={totals.pending} icon={Clock} tone="brass" />

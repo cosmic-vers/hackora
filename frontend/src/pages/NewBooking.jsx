@@ -148,7 +148,7 @@ export default function NewBooking() {
   return (
     <Layout
       title="Request a venue"
-      subtitle="Send the details — campus admin reviews it and you'll hear back here."
+      subtitle="Send the details — venue operations admin reviews it and you'll hear back here."
     >
       <div className="split-2" style={{ alignItems: "start" }}>
         <div className="card card-pad">
@@ -218,7 +218,7 @@ export default function NewBooking() {
                   {...props}
                   value={form.title}
                   onChange={update("title")}
-                  placeholder="Robotics Club induction"
+                  placeholder="Company product launch"
                   required
                 />
               )}

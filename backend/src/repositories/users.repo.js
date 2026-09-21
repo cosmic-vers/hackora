@@ -1,6 +1,4 @@
-const { v4: uuid } = require("uuid");
-const bcrypt = require("bcryptjs");
-const { db } = require("../database");
+const { query } = require("../database");
 const env = require("../config/env");
 
 function toUser(row) {
@@ -9,130 +7,116 @@ function toUser(row) {
     id: row.id,
     name: row.name,
     email: row.email,
-    password: row.password,
     role: row.role,
-    department: row.department,
-    phone: row.phone,
+    organization: row.organization || "",
+    phone: row.phone || "",
+    avatarUrl: row.avatar_url || "",
+    authProvider: row.auth_provider || "google",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-/** Strips the password hash — use this for anything that leaves the server. */
 function publicUser(user) {
-  if (!user) return null;
-  const { password, ...rest } = user;
-  return rest;
+  return user ? { ...user } : null;
 }
 
-const insertStmt = db.prepare(`
-  INSERT INTO users (id, name, email, password, role, department, phone, created_at, updated_at)
-  VALUES (@id, @name, @email, @password, @role, @department, @phone, @created_at, @updated_at)
-`);
+async function upsertFromIdentity(identity) {
+  const email = String(identity.email || "").trim().toLowerCase();
+  if (!email) throw new Error("Your Google account did not provide an email address.");
 
-function create({ name, email, password, role, department, phone }) {
-  const now = new Date().toISOString();
-  const user = {
-    id: uuid(),
-    name: name.trim(),
-    email: email.trim().toLowerCase(),
-    password: bcrypt.hashSync(password, env.BCRYPT_ROUNDS),
-    role,
-    department: (department || "").trim(),
-    phone: (phone || "").trim(),
-    created_at: now,
-    updated_at: now,
-  };
-  insertStmt.run(user);
-  return toUser(user);
-}
+  const existing = await findById(identity.id);
+  const metadata = identity.user_metadata || {};
+  const name = String(metadata.full_name || metadata.name || identity.email.split("@")[0]).trim() || "User";
+  const avatarUrl = String(metadata.avatar_url || metadata.picture || "").trim();
+  const adminEmail = env.ADMIN_EMAILS.some((item) => item.toLowerCase() === email);
 
-function findByEmail(email) {
-  return toUser(
-    db.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE").get((email || "").trim())
+  let role = existing?.role || "CUSTOMER";
+  if (adminEmail) role = "ADMIN";
+
+  const { rows } = await query(
+    `INSERT INTO users (id, name, email, role, organization, phone, avatar_url, auth_provider)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'google')
+     ON CONFLICT (id) DO UPDATE SET
+       name = EXCLUDED.name,
+       email = EXCLUDED.email,
+       avatar_url = EXCLUDED.avatar_url,
+       auth_provider = 'google',
+       role = CASE WHEN users.role = 'ADMIN' OR EXCLUDED.role = 'ADMIN' THEN 'ADMIN' ELSE users.role END,
+       updated_at = now()
+     RETURNING *`,
+    [identity.id, name, email, role, existing?.organization || "", existing?.phone || "", avatarUrl]
   );
+  return toUser(rows[0]);
 }
 
-function findById(id) {
-  return toUser(db.prepare("SELECT * FROM users WHERE id = ?").get(id));
+async function findById(id) {
+  const { rows } = await query("SELECT * FROM users WHERE id = $1", [id]);
+  return toUser(rows[0]);
 }
 
-function list({ search = "", role = "", page = 1, pageSize = 50 } = {}) {
+async function findByEmail(email) {
+  const { rows } = await query("SELECT * FROM users WHERE lower(email) = lower($1)", [String(email || "").trim()]);
+  return toUser(rows[0]);
+}
+
+async function list({ search = "", role = "", page = 1, pageSize = 50 } = {}) {
   const where = [];
-  const params = {};
-
+  const params = [];
   if (search) {
-    where.push("(name LIKE @q OR email LIKE @q OR department LIKE @q)");
-    params.q = `%${search}%`;
+    params.push(`%${search}%`);
+    where.push(`(u.name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR u.organization ILIKE $${params.length})`);
   }
   if (role) {
-    where.push("role = @role");
-    params.role = role;
+    params.push(role);
+    where.push(`u.role = $${params.length}`);
   }
-
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM users ${clause}`).get(params).n;
-
-  const rows = db
-    .prepare(
-      `SELECT u.*,
-              (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS booking_count
-       FROM users u ${clause}
-       ORDER BY datetime(u.created_at) DESC
-       LIMIT @limit OFFSET @offset`
-    )
-    .all({ ...params, limit: pageSize, offset: (page - 1) * pageSize });
-
+  const totalResult = await query(`SELECT COUNT(*)::int AS n FROM users u ${clause}`, params);
+  params.push(pageSize, (page - 1) * pageSize);
+  const { rows } = await query(
+    `SELECT u.*, (SELECT COUNT(*)::int FROM bookings b WHERE b.user_id=u.id) AS booking_count
+     FROM users u ${clause}
+     ORDER BY u.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
   return {
-    users: rows.map((row) => ({ ...publicUser(toUser(row)), bookingCount: row.booking_count })),
-    total,
+    users: rows.map((row) => ({ ...publicUser(toUser(row)), bookingCount: Number(row.booking_count || 0) })),
+    total: Number(totalResult.rows[0]?.n || 0),
     page,
     pageSize,
   };
 }
 
-function updateProfile(id, { name, department, phone }) {
-  db.prepare(
-    `UPDATE users
-     SET name = COALESCE(@name, name),
-         department = COALESCE(@department, department),
-         phone = COALESCE(@phone, phone),
-         updated_at = @updated_at
-     WHERE id = @id`
-  ).run({
-    id,
-    name: name?.trim() ?? null,
-    department: department?.trim() ?? null,
-    phone: phone?.trim() ?? null,
-    updated_at: new Date().toISOString(),
-  });
-  return findById(id);
-}
-
-function updatePassword(id, newPassword) {
-  db.prepare("UPDATE users SET password = ?, updated_at = ? WHERE id = ?").run(
-    bcrypt.hashSync(newPassword, env.BCRYPT_ROUNDS),
-    new Date().toISOString(),
-    id
+async function updateProfile(id, { name, organization, phone }) {
+  const { rows } = await query(
+    `UPDATE users SET
+       name = COALESCE($1,name),
+       organization = COALESCE($2,organization),
+       phone = COALESCE($3,phone)
+     WHERE id = $4
+     RETURNING *`,
+    [name?.trim() || null, organization?.trim() ?? null, phone?.trim() ?? null, id]
   );
+  return toUser(rows[0]);
 }
 
-function remove(id) {
-  return db.prepare("DELETE FROM users WHERE id = ?").run(id).changes > 0;
+async function remove(id) {
+  const result = await query("DELETE FROM users WHERE id=$1", [id]);
+  return result.rowCount > 0;
 }
 
-function count() {
-  return db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
+async function updateRole(id, role) {
+  const allowed = ["CUSTOMER", "VENUE_OWNER", "ADMIN"];
+  if (!allowed.includes(role)) throw new Error("Invalid role.");
+  const { rows } = await query("UPDATE users SET role=$1,updated_at=now() WHERE id=$2 RETURNING *", [role, id]);
+  return toUser(rows[0]);
 }
 
-module.exports = {
-  create,
-  findByEmail,
-  findById,
-  list,
-  updateProfile,
-  updatePassword,
-  remove,
-  count,
-  publicUser,
-};
+async function count() {
+  const { rows } = await query("SELECT COUNT(*)::int AS n FROM users");
+  return Number(rows[0]?.n || 0);
+}
+
+module.exports = { upsertFromIdentity, findById, findByEmail, list, updateProfile, updateRole, remove, count, publicUser };

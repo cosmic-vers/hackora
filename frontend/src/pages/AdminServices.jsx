@@ -4,18 +4,19 @@ import Layout from "../components/Layout";
 import Field from "../components/Field";
 import client, { apiError } from "../api/client";
 import { useToast } from "../context/ToastContext";
+import { useAuth } from "../context/AuthContext";
 
-const CATEGORIES=["DESIGN","CLEANING","SECURITY","TECHNICAL","DECORATION","CATERING","ELECTRICAL","MAINTENANCE","OTHER"];
+const CATEGORIES=["DESIGN","CLEANING","SECURITY","TECHNICAL","DECORATION","CATERING","ELECTRICAL","MAINTENANCE","PHOTOGRAPHY","SEATING","OTHER"];
 const blank={venueId:"",name:"",category:"CLEANING",providerName:"",role:"",phone:"",email:"",contractRef:"",contractStart:new Date().toISOString().slice(0,10),contractEnd:new Date().toISOString().slice(0,10),rate:"",billingUnit:"event",scope:"",notes:""};
 
 export default function AdminServices(){
- const toast=useToast(); const [venues,setVenues]=useState([]); const [services,setServices]=useState([]); const [form,setForm]=useState(blank); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false);
- const load=()=>Promise.all([client.get("/venues"),client.get("/services")]).then(([v,s])=>{setVenues(v.data.venues||[]);setServices(s.data.services||[]); if(!form.venueId && v.data.venues?.[0]) setForm(f=>({...f,venueId:v.data.venues[0].id}));}).catch(e=>toast.error(apiError(e,"Could not load support contracts.").message)).finally(()=>setLoading(false));
- useEffect(()=>{load();},[]);
+ const toast=useToast(); const {user}=useAuth(); const ownerMode=user?.role==="VENUE_OWNER"; const [venues,setVenues]=useState([]); const [services,setServices]=useState([]); const [form,setForm]=useState(blank); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false);
+ const load=()=>Promise.all([client.get(ownerMode?"/venues/mine":"/venues"),client.get("/services")]).then(([v,s])=>{setVenues(v.data.venues||[]);setServices(s.data.services||[]); if(!form.venueId && v.data.venues?.[0]) setForm(f=>({...f,venueId:v.data.venues[0].id}));}).catch(e=>toast.error(apiError(e,"Could not load support contracts.").message)).finally(()=>setLoading(false));
+ useEffect(()=>{load();},[ownerMode]);
  const update=e=>setForm({...form,[e.target.name]:e.target.value});
  const submit=async e=>{e.preventDefault();setSaving(true);try{await client.post("/services",{...form,rate:form.rate?Number(form.rate):0});toast.success("Support contract added.");setForm({...blank,venueId:form.venueId});load();}catch(e){toast.error(apiError(e,"Could not add contract.").message);}finally{setSaving(false);}};
  const remove=async id=>{if(!confirm("Remove this contract from the active list?"))return;try{await client.delete(`/services/${id}`);toast.success("Contract removed.");load();}catch(e){toast.error(apiError(e,"Could not remove contract.").message);}};
- return <Layout title="Support contracts" subtitle="Keep venue staff, maintenance and service agreements together with each space.">
+ return <Layout title={ownerMode?"My support contracts":"Support contracts"} subtitle={ownerMode?"Manage service partners attached to the venues you own.":"Keep venue staff, maintenance and service agreements together with each space."}>
    <div className="split-2" style={{alignItems:"start"}}>
     <div className="card card-pad">
       <div className="section-title"><Plus size={16}/> Add a support contract</div>
