@@ -83,6 +83,7 @@ create table if not exists bookings (
   payment_method text not null default '',
   transaction_id text not null default '',
   receipt_no text not null default '',
+  razorpay_order_id text not null default '',
   refund_amount numeric(12,2) not null default 0,
   seating_arrangement text not null default '',
   constraint bookings_time_check check (start_time < end_time),

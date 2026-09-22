@@ -34,6 +34,11 @@ const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
   OPENAI_MODEL: process.env.OPENAI_MODEL || "gpt-4o-mini",
   SEED_ON_START: process.env.SEED_ON_START !== "false",
+  // Optional — leave both blank to keep the built-in demo/simulated payment
+  // flow. Set both (from a Razorpay test-mode account) to take real Razorpay
+  // test payments instead.
+  RAZORPAY_KEY_ID: (process.env.RAZORPAY_KEY_ID || "").trim(),
+  RAZORPAY_KEY_SECRET: (process.env.RAZORPAY_KEY_SECRET || "").trim(),
 };
 
 module.exports = env;
